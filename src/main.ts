@@ -62,6 +62,7 @@ type Player = {
   shootCooldown: number;
   lastShotAt: number;
   hitFlashUntil: number;
+  shieldUntil: number;
   color: string;
   accentColor: string;
   controls: {
@@ -87,6 +88,21 @@ type HitMarker = {
   expiresAt: number;
 };
 
+type PowerupType = "HEALTH_CORE" | "SHIELD_BUBBLE";
+
+type Powerup = {
+  type: PowerupType;
+  position: Vector;
+  radius: number;
+};
+
+type FloatingText = {
+  text: string;
+  position: Vector;
+  color: string;
+  expiresAt: number;
+};
+
 type ArenaBounds = {
   x: number;
   y: number;
@@ -104,11 +120,18 @@ const arenaBounds: ArenaBounds = {
 const pressedKeys = new Set<string>();
 const bullets: Bullet[] = [];
 const hitMarkers: HitMarker[] = [];
+const floatingTexts: FloatingText[] = [];
+let activePowerup: Powerup | null = null;
+let nextPowerupSpawnAt = 0;
 let winnerText = "";
 
 const bulletSpeed = 520;
 const bulletDamage = 15;
 const hitFeedbackDuration = 140;
+const healthRestoreAmount = 25;
+const shieldDuration = 5000;
+const shieldDamageMultiplier = 0.25;
+const powerupRespawnDelay = 1800;
 
 const players: Player[] = [
   {
@@ -124,6 +147,7 @@ const players: Player[] = [
     shootCooldown: 320,
     lastShotAt: -Infinity,
     hitFlashUntil: 0,
+    shieldUntil: 0,
     color: colors.cyan,
     accentColor: "#126fff",
     controls: {
@@ -146,6 +170,7 @@ const players: Player[] = [
     shootCooldown: 320,
     lastShotAt: -Infinity,
     hitFlashUntil: 0,
+    shieldUntil: 0,
     color: colors.pink,
     accentColor: "#ff334f",
     controls: {
@@ -266,12 +291,16 @@ function resetPlayer(player: Player): void {
   player.health = player.maxHealth;
   player.lastShotAt = -Infinity;
   player.hitFlashUntil = 0;
+  player.shieldUntil = 0;
 }
 
 function resetRound(): void {
   players.forEach(resetPlayer);
   bullets.length = 0;
   hitMarkers.length = 0;
+  floatingTexts.length = 0;
+  activePowerup = null;
+  nextPowerupSpawnAt = 0;
   winnerText = "";
   pressedKeys.clear();
 }
@@ -405,6 +434,8 @@ function setWinner(winner: Player): void {
   winnerText = winner.id === "P1" ? "Player 1 Wins!" : "Player 2 Wins!";
   bullets.length = 0;
   hitMarkers.length = 0;
+  floatingTexts.length = 0;
+  activePowerup = null;
   pressedKeys.clear();
   gameState = GAME_STATES.WINNER;
 }
@@ -418,9 +449,18 @@ function checkBulletHits(currentTime: number): void {
       continue;
     }
 
-    target.health = Math.max(target.health - bullet.damage, 0);
+    const hasShield = target.shieldUntil > currentTime;
+    const damage = hasShield ? Math.ceil(bullet.damage * shieldDamageMultiplier) : bullet.damage;
+
+    target.health = Math.max(target.health - damage, 0);
     target.hitFlashUntil = currentTime + hitFeedbackDuration;
-    hitMarkers.push({ position: { ...target.position }, color: bullet.color, expiresAt: currentTime + 180 });
+    hitMarkers.push({ position: { ...target.position }, color: hasShield ? colors.lime : bullet.color, expiresAt: currentTime + 180 });
+    floatingTexts.push({
+      text: hasShield ? "BLOCK" : `-${damage}`,
+      position: { x: target.position.x, y: target.position.y - 42 },
+      color: hasShield ? colors.lime : bullet.color,
+      expiresAt: currentTime + 650,
+    });
     bullets.splice(bulletIndex, 1);
 
     if (target.health <= 0) {
@@ -443,16 +483,117 @@ function updateHitMarkers(currentTime: number): void {
   }
 }
 
+function updateFloatingTexts(currentTime: number): void {
+  for (let index = floatingTexts.length - 1; index >= 0; index -= 1) {
+    const text = floatingTexts[index];
+    text.position.y -= 0.45;
+
+    if (text.expiresAt <= currentTime) {
+      floatingTexts.splice(index, 1);
+    }
+  }
+}
+
+function getRandomPowerupType(): PowerupType {
+  return Math.random() > 0.5 ? "HEALTH_CORE" : "SHIELD_BUBBLE";
+}
+
+function getSafePowerupPosition(): Vector {
+  const padding = 56;
+  const minPlayerDistance = 120;
+
+  for (let attempt = 0; attempt < 24; attempt += 1) {
+    const position = {
+      x: arenaBounds.x + padding + Math.random() * (arenaBounds.width - padding * 2),
+      y: arenaBounds.y + padding + Math.random() * (arenaBounds.height - padding * 2),
+    };
+    const isAwayFromPlayers = players.every((player) => getDistance(position, player.position) >= minPlayerDistance);
+
+    if (isAwayFromPlayers) {
+      return position;
+    }
+  }
+
+  return {
+    x: arenaBounds.x + arenaBounds.width / 2,
+    y: arenaBounds.y + arenaBounds.height / 2,
+  };
+}
+
+function spawnPowerup(): void {
+  activePowerup = {
+    type: getRandomPowerupType(),
+    position: getSafePowerupPosition(),
+    radius: 18,
+  };
+}
+
+function applyPowerup(player: Player, powerup: Powerup, currentTime: number): void {
+  if (powerup.type === "HEALTH_CORE") {
+    player.health = Math.min(player.health + healthRestoreAmount, player.maxHealth);
+    floatingTexts.push({
+      text: "+25 HP",
+      position: { x: player.position.x, y: player.position.y - 46 },
+      color: colors.lime,
+      expiresAt: currentTime + 850,
+    });
+    return;
+  }
+
+  player.shieldUntil = currentTime + shieldDuration;
+  floatingTexts.push({
+    text: "SHIELD",
+    position: { x: player.position.x, y: player.position.y - 46 },
+    color: colors.cyan,
+    expiresAt: currentTime + 850,
+  });
+}
+
+function checkPowerupPickup(currentTime: number): void {
+  if (!activePowerup) {
+    return;
+  }
+
+  for (const player of players) {
+    if (getDistance(player.position, activePowerup.position) > player.radius + activePowerup.radius) {
+      continue;
+    }
+
+    applyPowerup(player, activePowerup, currentTime);
+    activePowerup = null;
+    nextPowerupSpawnAt = currentTime + powerupRespawnDelay;
+    return;
+  }
+}
+
+function updatePowerups(currentTime: number): void {
+  if (!activePowerup && currentTime >= nextPowerupSpawnAt) {
+    spawnPowerup();
+  }
+
+  checkPowerupPickup(currentTime);
+}
+
 function drawPlayer(player: Player): void {
   const { x, y } = player.position;
   const facingAngle = Math.atan2(player.facing.y, player.facing.x);
   const isFlashing = player.hitFlashUntil > performance.now();
+  const hasShield = player.shieldUntil > performance.now();
 
   ctx.save();
   ctx.translate(x, y);
 
   ctx.shadowColor = player.color;
   ctx.shadowBlur = 18;
+
+  if (hasShield) {
+    ctx.strokeStyle = colors.lime;
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.arc(0, 0, player.radius + 10, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+
   ctx.fillStyle = "rgba(0, 0, 0, 0.32)";
   ctx.beginPath();
   ctx.ellipse(0, player.radius + 8, player.radius * 0.9, 8, 0, 0, Math.PI * 2);
@@ -484,7 +625,7 @@ function drawPlayer(player: Player): void {
 
   ctx.restore();
 
-  drawText(player.id, x, y - player.radius - 20, 16, player.color);
+  drawText(hasShield ? `${player.id} SHIELD` : player.id, x, y - player.radius - 20, 16, hasShield ? colors.lime : player.color);
 }
 
 function drawPlayers(): void {
@@ -534,6 +675,60 @@ function drawHitMarkers(): void {
   }
 }
 
+function drawFloatingTexts(): void {
+  for (const text of floatingTexts) {
+    const lifePercent = clamp((text.expiresAt - performance.now()) / 850, 0, 1);
+
+    ctx.save();
+    ctx.globalAlpha = lifePercent;
+    drawText(text.text, text.position.x, text.position.y, 18, text.color);
+    ctx.restore();
+  }
+}
+
+function drawPowerups(): void {
+  if (!activePowerup) {
+    return;
+  }
+
+  const { x, y } = activePowerup.position;
+
+  ctx.save();
+  ctx.translate(x, y);
+
+  if (activePowerup.type === "HEALTH_CORE") {
+    ctx.shadowColor = colors.lime;
+    ctx.shadowBlur = 18;
+    ctx.fillStyle = "rgba(182, 255, 77, 0.2)";
+    ctx.strokeStyle = colors.lime;
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.arc(0, 0, activePowerup.radius, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+
+    ctx.fillStyle = colors.lime;
+    ctx.fillRect(-3, -10, 6, 20);
+    ctx.fillRect(-10, -3, 20, 6);
+  } else {
+    ctx.shadowColor = colors.cyan;
+    ctx.shadowBlur = 18;
+    ctx.fillStyle = "rgba(40, 240, 255, 0.18)";
+    ctx.strokeStyle = "#ffe66d";
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.moveTo(0, -20);
+    ctx.quadraticCurveTo(18, -12, 14, 7);
+    ctx.quadraticCurveTo(8, 20, 0, 24);
+    ctx.quadraticCurveTo(-8, 20, -14, 7);
+    ctx.quadraticCurveTo(-18, -12, 0, -20);
+    ctx.fill();
+    ctx.stroke();
+  }
+
+  ctx.restore();
+}
+
 function drawHealthBar(player: Player, x: number, y: number, width: number, align: CanvasTextAlign): void {
   const height = 16;
   const healthPercent = clamp(player.health / player.maxHealth, 0, 1);
@@ -557,6 +752,10 @@ function drawHealthBar(player: Player, x: number, y: number, width: number, alig
   ctx.restore();
 
   drawText(`${player.id}  ${player.health}/${player.maxHealth}`, align === "left" ? x : x + width, y - 14, 16, player.color, align);
+
+  if (player.shieldUntil > performance.now()) {
+    drawText("SHIELD", align === "left" ? x : x + width, y + 31, 13, colors.lime, align);
+  }
 }
 
 function drawHud(): void {
@@ -575,9 +774,11 @@ function drawPlaying(): void {
   drawGrid();
   drawHud();
   drawArenaBoundary();
+  drawPowerups();
   drawBullets();
   drawPlayers();
   drawHitMarkers();
+  drawFloatingTexts();
 }
 
 function drawWinner(): void {
@@ -599,6 +800,8 @@ function gameLoop(currentTime = 0): void {
     updateBullets(deltaSeconds);
     checkBulletHits(currentTime);
     updateHitMarkers(currentTime);
+    updatePowerups(currentTime);
+    updateFloatingTexts(currentTime);
     drawPlaying();
   } else if (gameState === GAME_STATES.WINNER) {
     drawWinner();
