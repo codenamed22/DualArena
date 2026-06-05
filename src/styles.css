@@ -14,41 +14,58 @@
 }
 
 body {
-  min-height: 100vh;
+  width: 100vw;
+  height: 100vh;
   margin: 0;
   display: grid;
   place-items: center;
   background:
-    radial-gradient(circle at 20% 20%, rgba(40, 240, 255, 0.16), transparent 32%),
-    radial-gradient(circle at 80% 78%, rgba(255, 61, 242, 0.14), transparent 30%),
-    linear-gradient(135deg, #050711 0%, var(--bg) 45%, #0d1022 100%);
+    linear-gradient(rgba(40, 240, 255, 0.035) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 61, 242, 0.03) 1px, transparent 1px),
+    radial-gradient(circle at 20% 18%, rgba(40, 240, 255, 0.22), transparent 28%),
+    radial-gradient(circle at 82% 76%, rgba(255, 61, 242, 0.18), transparent 30%),
+    radial-gradient(circle at 50% 108%, rgba(182, 255, 77, 0.08), transparent 30%),
+    linear-gradient(135deg, #03050d 0%, var(--bg) 48%, #0d1022 100%);
+  background-size:
+    44px 44px,
+    44px 44px,
+    auto,
+    auto,
+    auto,
+    auto;
   color: var(--text);
   font-family: Arial, Helvetica, sans-serif;
+  overflow: hidden;
 }
 
 .game-shell {
-  width: min(100vw, 1080px);
-  padding: 24px;
+  width: min(100vw, 1120px);
+  padding: clamp(12px, 2.4vw, 24px);
 }
 
 .game-panel {
   width: 100%;
-  padding: 12px;
-  background: linear-gradient(145deg, rgba(40, 240, 255, 0.18), rgba(255, 61, 242, 0.16));
-  border: 1px solid rgba(244, 247, 255, 0.16);
+  padding: clamp(8px, 1.3vw, 14px);
+  background:
+    linear-gradient(145deg, rgba(40, 240, 255, 0.22), rgba(255, 61, 242, 0.16)),
+    rgba(8, 12, 28, 0.86);
+  border: 1px solid rgba(244, 247, 255, 0.22);
   border-radius: 8px;
   box-shadow:
-    0 0 28px rgba(40, 240, 255, 0.2),
-    0 0 46px rgba(255, 61, 242, 0.12);
+    0 24px 70px rgba(0, 0, 0, 0.52),
+    0 0 34px rgba(40, 240, 255, 0.24),
+    0 0 58px rgba(255, 61, 242, 0.14);
 }
 
 canvas {
   display: block;
   width: 100%;
-  max-height: calc(100vh - 72px);
+  max-height: calc(100vh - 56px);
   aspect-ratio: 16 / 9;
-  background: #080b16;
-  border: 2px solid rgba(40, 240, 255, 0.68);
+  background: #050712;
+  border: 2px solid rgba(40, 240, 255, 0.74);
   border-radius: 6px;
-  box-shadow: inset 0 0 36px rgba(40, 240, 255, 0.08);
+  box-shadow:
+    inset 0 0 42px rgba(40, 240, 255, 0.1),
+    inset 0 0 90px rgba(0, 0, 0, 0.45);
 }

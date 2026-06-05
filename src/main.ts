@@ -59,10 +59,12 @@ type Player = {
   speed: number;
   maxHealth: number;
   health: number;
+  displayedHealth: number;
   shootCooldown: number;
   lastShotAt: number;
   hitFlashUntil: number;
   shieldUntil: number;
+  trail: Vector[];
   color: string;
   accentColor: string;
   controls: {
@@ -103,6 +105,15 @@ type FloatingText = {
   expiresAt: number;
 };
 
+type Particle = {
+  position: Vector;
+  velocity: Vector;
+  radius: number;
+  color: string;
+  expiresAt: number;
+  createdAt: number;
+};
+
 type ArenaBounds = {
   x: number;
   y: number;
@@ -121,9 +132,12 @@ const pressedKeys = new Set<string>();
 const bullets: Bullet[] = [];
 const hitMarkers: HitMarker[] = [];
 const floatingTexts: FloatingText[] = [];
+const particles: Particle[] = [];
 let activePowerup: Powerup | null = null;
 let nextPowerupSpawnAt = 0;
 let winnerText = "";
+let screenShakeUntil = 0;
+let screenShakeMagnitude = 0;
 
 const bulletSpeed = 520;
 const bulletDamage = 15;
@@ -144,10 +158,12 @@ const players: Player[] = [
     speed: 245,
     maxHealth: 100,
     health: 100,
+    displayedHealth: 100,
     shootCooldown: 320,
     lastShotAt: -Infinity,
     hitFlashUntil: 0,
     shieldUntil: 0,
+    trail: [],
     color: colors.cyan,
     accentColor: "#126fff",
     controls: {
@@ -167,10 +183,12 @@ const players: Player[] = [
     speed: 245,
     maxHealth: 100,
     health: 100,
+    displayedHealth: 100,
     shootCooldown: 320,
     lastShotAt: -Infinity,
     hitFlashUntil: 0,
     shieldUntil: 0,
+    trail: [],
     color: colors.pink,
     accentColor: "#ff334f",
     controls: {
@@ -183,6 +201,10 @@ const players: Player[] = [
 ];
 
 window.addEventListener("keydown", (event) => {
+  if (["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "Space"].includes(event.code)) {
+    event.preventDefault();
+  }
+
   if (event.key === "Enter" && gameState === GAME_STATES.MENU) {
     resetRound();
     gameState = GAME_STATES.PLAYING;
@@ -205,7 +227,13 @@ window.addEventListener("keyup", (event) => {
 });
 
 function clearCanvas(): void {
-  ctx.fillStyle = colors.background;
+  const backgroundGradient = ctx.createRadialGradient(canvas.width / 2, canvas.height / 2, 80, canvas.width / 2, canvas.height / 2, 620);
+
+  backgroundGradient.addColorStop(0, "#10162d");
+  backgroundGradient.addColorStop(0.5, colors.background);
+  backgroundGradient.addColorStop(1, "#03050d");
+
+  ctx.fillStyle = backgroundGradient;
   ctx.fillRect(0, 0, canvas.width, canvas.height);
 }
 
@@ -226,10 +254,10 @@ function drawText(
 
 function drawGrid(): void {
   ctx.save();
-  ctx.strokeStyle = colors.grid;
   ctx.lineWidth = 1;
 
   for (let x = 0; x <= canvas.width; x += 48) {
+    ctx.strokeStyle = x % 96 === 0 ? "rgba(40, 240, 255, 0.14)" : colors.grid;
     ctx.beginPath();
     ctx.moveTo(x, 0);
     ctx.lineTo(x, canvas.height);
@@ -237,6 +265,7 @@ function drawGrid(): void {
   }
 
   for (let y = 0; y <= canvas.height; y += 48) {
+    ctx.strokeStyle = y % 96 === 0 ? "rgba(255, 61, 242, 0.1)" : colors.grid;
     ctx.beginPath();
     ctx.moveTo(0, y);
     ctx.lineTo(canvas.width, y);
@@ -246,10 +275,36 @@ function drawGrid(): void {
   ctx.restore();
 }
 
+function drawArenaGrid(): void {
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(arenaBounds.x, arenaBounds.y, arenaBounds.width, arenaBounds.height);
+  ctx.clip();
+  drawGrid();
+  ctx.restore();
+}
+
+function drawPanel(x: number, y: number, width: number, height: number, stroke = "rgba(40, 240, 255, 0.35)"): void {
+  ctx.save();
+  ctx.fillStyle = "rgba(6, 10, 24, 0.78)";
+  ctx.strokeStyle = stroke;
+  ctx.lineWidth = 2;
+  ctx.shadowColor = stroke;
+  ctx.shadowBlur = 12;
+  ctx.beginPath();
+  ctx.roundRect(x, y, width, height, 8);
+  ctx.fill();
+  ctx.stroke();
+  ctx.restore();
+}
+
 function drawControls(): void {
   const leftX = canvas.width * 0.32;
   const rightX = canvas.width * 0.68;
   const y = 360;
+
+  drawPanel(leftX - 150, y - 38, 300, 132, "rgba(40, 240, 255, 0.34)");
+  drawPanel(rightX - 150, y - 38, 300, 132, "rgba(255, 61, 242, 0.34)");
 
   drawText("P1 Controls", leftX, y, 22, colors.cyan);
   drawText("Move: W A S D", leftX, y + 38, 18, colors.muted);
@@ -261,17 +316,30 @@ function drawControls(): void {
 }
 
 function drawMenu(): void {
+  const pulse = (Math.sin(performance.now() / 280) + 1) / 2;
+
   clearCanvas();
   drawGrid();
 
-  drawText("DuelByte Arena", canvas.width / 2, 145, 56, colors.text);
-  drawText("Same keyboard. No mercy.", canvas.width / 2, 205, 24, colors.lime);
-  drawText("Press Enter to Start", canvas.width / 2, 280, 28, colors.cyan);
+  ctx.save();
+  ctx.shadowColor = colors.cyan;
+  ctx.shadowBlur = 24;
+  drawText("DuelByte Arena", canvas.width / 2, 128, 60, colors.text);
+  ctx.restore();
+
+  drawText("Same keyboard. No mercy.", canvas.width / 2, 194, 24, colors.lime);
+  drawPanel(canvas.width / 2 - 184, 244, 368, 58, `rgba(40, 240, 255, ${0.34 + pulse * 0.28})`);
+  drawText("Press Enter to Start", canvas.width / 2, 273, 27, colors.cyan);
   drawControls();
 }
 
 function drawArenaBoundary(): void {
+  const cornerLength = 58;
+
   ctx.save();
+  ctx.fillStyle = "rgba(5, 8, 18, 0.68)";
+  ctx.fillRect(arenaBounds.x, arenaBounds.y, arenaBounds.width, arenaBounds.height);
+
   ctx.strokeStyle = colors.cyan;
   ctx.lineWidth = 4;
   ctx.shadowColor = colors.cyan;
@@ -282,6 +350,25 @@ function drawArenaBoundary(): void {
   ctx.lineWidth = 2;
   ctx.shadowColor = colors.pink;
   ctx.strokeRect(arenaBounds.x + 16, arenaBounds.y + 16, arenaBounds.width - 32, arenaBounds.height - 32);
+
+  ctx.lineWidth = 5;
+  ctx.strokeStyle = colors.lime;
+  ctx.shadowColor = colors.lime;
+  ctx.beginPath();
+  ctx.moveTo(arenaBounds.x, arenaBounds.y + cornerLength);
+  ctx.lineTo(arenaBounds.x, arenaBounds.y);
+  ctx.lineTo(arenaBounds.x + cornerLength, arenaBounds.y);
+  ctx.moveTo(arenaBounds.x + arenaBounds.width - cornerLength, arenaBounds.y);
+  ctx.lineTo(arenaBounds.x + arenaBounds.width, arenaBounds.y);
+  ctx.lineTo(arenaBounds.x + arenaBounds.width, arenaBounds.y + cornerLength);
+  ctx.moveTo(arenaBounds.x + arenaBounds.width, arenaBounds.y + arenaBounds.height - cornerLength);
+  ctx.lineTo(arenaBounds.x + arenaBounds.width, arenaBounds.y + arenaBounds.height);
+  ctx.lineTo(arenaBounds.x + arenaBounds.width - cornerLength, arenaBounds.y + arenaBounds.height);
+  ctx.moveTo(arenaBounds.x + cornerLength, arenaBounds.y + arenaBounds.height);
+  ctx.lineTo(arenaBounds.x, arenaBounds.y + arenaBounds.height);
+  ctx.lineTo(arenaBounds.x, arenaBounds.y + arenaBounds.height - cornerLength);
+  ctx.stroke();
+
   ctx.restore();
 }
 
@@ -289,9 +376,11 @@ function resetPlayer(player: Player): void {
   player.position = { ...player.spawnPosition };
   player.facing = { ...player.spawnFacing };
   player.health = player.maxHealth;
+  player.displayedHealth = player.maxHealth;
   player.lastShotAt = -Infinity;
   player.hitFlashUntil = 0;
   player.shieldUntil = 0;
+  player.trail = [];
 }
 
 function resetRound(): void {
@@ -299,8 +388,11 @@ function resetRound(): void {
   bullets.length = 0;
   hitMarkers.length = 0;
   floatingTexts.length = 0;
+  particles.length = 0;
   activePowerup = null;
   nextPowerupSpawnAt = 0;
+  screenShakeUntil = 0;
+  screenShakeMagnitude = 0;
   winnerText = "";
   pressedKeys.clear();
 }
@@ -342,10 +434,16 @@ function updatePlayer(player: Player, deltaSeconds: number): void {
 
   if (input.x !== 0 || input.y !== 0) {
     player.facing = input;
+    player.trail.unshift({ ...player.position });
   }
 
   player.position.x += input.x * player.speed * deltaSeconds;
   player.position.y += input.y * player.speed * deltaSeconds;
+  player.displayedHealth += (player.health - player.displayedHealth) * Math.min(deltaSeconds * 12, 1);
+
+  if (player.trail.length > 7) {
+    player.trail.pop();
+  }
 
   player.position.x = clamp(
     player.position.x,
@@ -440,6 +538,27 @@ function setWinner(winner: Player): void {
   gameState = GAME_STATES.WINNER;
 }
 
+function triggerScreenShake(magnitude: number, duration: number, currentTime: number): void {
+  screenShakeMagnitude = magnitude;
+  screenShakeUntil = currentTime + duration;
+}
+
+function spawnParticles(position: Vector, color: string, count: number, currentTime: number): void {
+  for (let index = 0; index < count; index += 1) {
+    const angle = Math.random() * Math.PI * 2;
+    const speed = 90 + Math.random() * 180;
+
+    particles.push({
+      position: { ...position },
+      velocity: { x: Math.cos(angle) * speed, y: Math.sin(angle) * speed },
+      radius: 2 + Math.random() * 3,
+      color,
+      createdAt: currentTime,
+      expiresAt: currentTime + 420 + Math.random() * 180,
+    });
+  }
+}
+
 function checkBulletHits(currentTime: number): void {
   for (let bulletIndex = bullets.length - 1; bulletIndex >= 0; bulletIndex -= 1) {
     const bullet = bullets[bulletIndex];
@@ -455,6 +574,8 @@ function checkBulletHits(currentTime: number): void {
     target.health = Math.max(target.health - damage, 0);
     target.hitFlashUntil = currentTime + hitFeedbackDuration;
     hitMarkers.push({ position: { ...target.position }, color: hasShield ? colors.lime : bullet.color, expiresAt: currentTime + 180 });
+    spawnParticles(bullet.position, hasShield ? colors.lime : bullet.color, hasShield ? 14 : 18, currentTime);
+    triggerScreenShake(hasShield ? 3 : 5, 140, currentTime);
     floatingTexts.push({
       text: hasShield ? "BLOCK" : `-${damage}`,
       position: { x: target.position.x, y: target.position.y - 42 },
@@ -479,6 +600,20 @@ function updateHitMarkers(currentTime: number): void {
   for (let index = hitMarkers.length - 1; index >= 0; index -= 1) {
     if (hitMarkers[index].expiresAt <= currentTime) {
       hitMarkers.splice(index, 1);
+    }
+  }
+}
+
+function updateParticles(deltaSeconds: number, currentTime: number): void {
+  for (let index = particles.length - 1; index >= 0; index -= 1) {
+    const particle = particles[index];
+    particle.position.x += particle.velocity.x * deltaSeconds;
+    particle.position.y += particle.velocity.y * deltaSeconds;
+    particle.velocity.x *= 0.9;
+    particle.velocity.y *= 0.9;
+
+    if (particle.expiresAt <= currentTime) {
+      particles.splice(index, 1);
     }
   }
 }
@@ -531,6 +666,7 @@ function spawnPowerup(): void {
 function applyPowerup(player: Player, powerup: Powerup, currentTime: number): void {
   if (powerup.type === "HEALTH_CORE") {
     player.health = Math.min(player.health + healthRestoreAmount, player.maxHealth);
+    spawnParticles(player.position, colors.lime, 16, currentTime);
     floatingTexts.push({
       text: "+25 HP",
       position: { x: player.position.x, y: player.position.y - 46 },
@@ -541,6 +677,7 @@ function applyPowerup(player: Player, powerup: Powerup, currentTime: number): vo
   }
 
   player.shieldUntil = currentTime + shieldDuration;
+  spawnParticles(player.position, colors.cyan, 18, currentTime);
   floatingTexts.push({
     text: "SHIELD",
     position: { x: player.position.x, y: player.position.y - 46 },
@@ -580,6 +717,20 @@ function drawPlayer(player: Player): void {
   const isFlashing = player.hitFlashUntil > performance.now();
   const hasShield = player.shieldUntil > performance.now();
 
+  player.trail.forEach((point, index) => {
+    const alpha = 0.18 * (1 - index / player.trail.length);
+
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    ctx.fillStyle = player.color;
+    ctx.shadowColor = player.color;
+    ctx.shadowBlur = 14;
+    ctx.beginPath();
+    ctx.arc(point.x, point.y, player.radius * (0.9 - index * 0.06), 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  });
+
   ctx.save();
   ctx.translate(x, y);
 
@@ -587,10 +738,12 @@ function drawPlayer(player: Player): void {
   ctx.shadowBlur = 18;
 
   if (hasShield) {
+    const shieldPulse = Math.sin(performance.now() / 120) * 2;
+
     ctx.strokeStyle = colors.lime;
     ctx.lineWidth = 3;
     ctx.beginPath();
-    ctx.arc(0, 0, player.radius + 10, 0, Math.PI * 2);
+    ctx.arc(0, 0, player.radius + 10 + shieldPulse, 0, Math.PI * 2);
     ctx.stroke();
   }
 
@@ -606,6 +759,11 @@ function drawPlayer(player: Player): void {
   ctx.arc(0, 0, player.radius, 0, Math.PI * 2);
   ctx.fill();
   ctx.stroke();
+
+  ctx.fillStyle = "rgba(255, 255, 255, 0.18)";
+  ctx.beginPath();
+  ctx.arc(-7, -8, player.radius * 0.42, 0, Math.PI * 2);
+  ctx.fill();
 
   ctx.rotate(facingAngle);
   ctx.shadowBlur = 8;
@@ -635,6 +793,21 @@ function drawPlayers(): void {
 function drawBullets(): void {
   for (const bullet of bullets) {
     const angle = Math.atan2(bullet.velocity.y, bullet.velocity.x);
+    const speedLength = Math.hypot(bullet.velocity.x, bullet.velocity.y);
+    const trailX = -(bullet.velocity.x / speedLength) * 24;
+    const trailY = -(bullet.velocity.y / speedLength) * 24;
+
+    ctx.save();
+    ctx.strokeStyle = bullet.color;
+    ctx.globalAlpha = 0.55;
+    ctx.lineWidth = 5;
+    ctx.shadowColor = bullet.color;
+    ctx.shadowBlur = 18;
+    ctx.beginPath();
+    ctx.moveTo(bullet.position.x, bullet.position.y);
+    ctx.lineTo(bullet.position.x + trailX, bullet.position.y + trailY);
+    ctx.stroke();
+    ctx.restore();
 
     ctx.save();
     ctx.translate(bullet.position.x, bullet.position.y);
@@ -649,6 +822,22 @@ function drawBullets(): void {
     ctx.fillStyle = "rgba(244, 247, 255, 0.7)";
     ctx.beginPath();
     ctx.arc(bullet.radius * 0.8, 0, bullet.radius * 0.35, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
+}
+
+function drawParticles(): void {
+  for (const particle of particles) {
+    const lifePercent = clamp((particle.expiresAt - performance.now()) / (particle.expiresAt - particle.createdAt), 0, 1);
+
+    ctx.save();
+    ctx.globalAlpha = lifePercent;
+    ctx.fillStyle = particle.color;
+    ctx.shadowColor = particle.color;
+    ctx.shadowBlur = 10;
+    ctx.beginPath();
+    ctx.arc(particle.position.x, particle.position.y, particle.radius * lifePercent, 0, Math.PI * 2);
     ctx.fill();
     ctx.restore();
   }
@@ -692,13 +881,15 @@ function drawPowerups(): void {
   }
 
   const { x, y } = activePowerup.position;
+  const bob = Math.sin(performance.now() / 220) * 4;
+  const pulse = (Math.sin(performance.now() / 180) + 1) / 2;
 
   ctx.save();
-  ctx.translate(x, y);
+  ctx.translate(x, y + bob);
 
   if (activePowerup.type === "HEALTH_CORE") {
     ctx.shadowColor = colors.lime;
-    ctx.shadowBlur = 18;
+    ctx.shadowBlur = 20 + pulse * 12;
     ctx.fillStyle = "rgba(182, 255, 77, 0.2)";
     ctx.strokeStyle = colors.lime;
     ctx.lineWidth = 3;
@@ -710,9 +901,10 @@ function drawPowerups(): void {
     ctx.fillStyle = colors.lime;
     ctx.fillRect(-3, -10, 6, 20);
     ctx.fillRect(-10, -3, 20, 6);
+    drawText("HP", 0, 31, 12, colors.lime);
   } else {
     ctx.shadowColor = colors.cyan;
-    ctx.shadowBlur = 18;
+    ctx.shadowBlur = 20 + pulse * 12;
     ctx.fillStyle = "rgba(40, 240, 255, 0.18)";
     ctx.strokeStyle = "#ffe66d";
     ctx.lineWidth = 3;
@@ -724,18 +916,21 @@ function drawPowerups(): void {
     ctx.quadraticCurveTo(-18, -12, 0, -20);
     ctx.fill();
     ctx.stroke();
+    drawText("SH", 0, 33, 12, "#ffe66d");
   }
 
   ctx.restore();
 }
 
 function drawHealthBar(player: Player, x: number, y: number, width: number, align: CanvasTextAlign): void {
-  const height = 16;
-  const healthPercent = clamp(player.health / player.maxHealth, 0, 1);
+  const height = 18;
+  const healthPercent = clamp(player.displayedHealth / player.maxHealth, 0, 1);
   const fillWidth = width * healthPercent;
+  const labelX = align === "left" ? x : x + width;
 
+  drawPanel(x - 16, y - 28, width + 32, 76, player.color);
   ctx.save();
-  ctx.fillStyle = "rgba(6, 9, 22, 0.82)";
+  ctx.fillStyle = "rgba(1, 3, 12, 0.86)";
   ctx.strokeStyle = "rgba(244, 247, 255, 0.24)";
   ctx.lineWidth = 2;
   ctx.beginPath();
@@ -749,43 +944,82 @@ function drawHealthBar(player: Player, x: number, y: number, width: number, alig
   ctx.beginPath();
   ctx.roundRect(x, y, fillWidth, height, 6);
   ctx.fill();
+
+  ctx.fillStyle = "rgba(255, 255, 255, 0.24)";
+  ctx.beginPath();
+  ctx.roundRect(x, y + 3, fillWidth, 4, 4);
+  ctx.fill();
   ctx.restore();
 
-  drawText(`${player.id}  ${player.health}/${player.maxHealth}`, align === "left" ? x : x + width, y - 14, 16, player.color, align);
+  drawText(player.id === "P1" ? "PLAYER 1" : "PLAYER 2", labelX, y - 16, 16, player.color, align);
+  drawText(`${Math.round(player.health)} / ${player.maxHealth}`, labelX, y + 31, 14, colors.text, align);
 
   if (player.shieldUntil > performance.now()) {
-    drawText("SHIELD", align === "left" ? x : x + width, y + 31, 13, colors.lime, align);
+    drawText("SHIELD ACTIVE", labelX, y + 48, 12, colors.lime, align);
   }
 }
 
 function drawHud(): void {
   const barWidth = 260;
-  const barY = 26;
+  const barY = 30;
 
-  drawHealthBar(players[0], 42, barY, barWidth, "left");
-  drawHealthBar(players[1], canvas.width - barWidth - 42, barY, barWidth, "right");
+  drawHealthBar(players[0], 46, barY, barWidth, "left");
+  drawHealthBar(players[1], canvas.width - barWidth - 46, barY, barWidth, "right");
 
-  drawText("Round 1", canvas.width / 2, 26, 20, colors.text);
-  drawText("Last Player Standing", canvas.width / 2, 52, 15, colors.muted);
+  drawPanel(canvas.width / 2 - 118, 14, 236, 56, "rgba(182, 255, 77, 0.28)");
+  drawText("Round 1", canvas.width / 2, 33, 20, colors.text);
+  drawText("Last Player Standing", canvas.width / 2, 56, 14, colors.muted);
+}
+
+function getShakeOffset(currentTime: number): Vector {
+  if (currentTime >= screenShakeUntil) {
+    return { x: 0, y: 0 };
+  }
+
+  const life = (screenShakeUntil - currentTime) / 140;
+  const magnitude = screenShakeMagnitude * life;
+
+  return {
+    x: (Math.random() - 0.5) * magnitude,
+    y: (Math.random() - 0.5) * magnitude,
+  };
 }
 
 function drawPlaying(): void {
   clearCanvas();
-  drawGrid();
   drawHud();
+
+  const shake = getShakeOffset(performance.now());
+
+  ctx.save();
+  ctx.translate(shake.x, shake.y);
   drawArenaBoundary();
+  drawArenaGrid();
   drawPowerups();
   drawBullets();
+  drawParticles();
   drawPlayers();
   drawHitMarkers();
   drawFloatingTexts();
+  ctx.restore();
 }
 
 function drawWinner(): void {
   clearCanvas();
   drawGrid();
-  drawText(winnerText, canvas.width / 2, canvas.height / 2 - 28, 46, colors.lime);
-  drawText("Press R to Restart", canvas.width / 2, canvas.height / 2 + 34, 24, colors.cyan);
+  ctx.save();
+  ctx.fillStyle = "rgba(3, 5, 13, 0.72)";
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.restore();
+
+  drawPanel(canvas.width / 2 - 230, canvas.height / 2 - 104, 460, 190, "rgba(182, 255, 77, 0.44)");
+  ctx.save();
+  ctx.shadowColor = colors.lime;
+  ctx.shadowBlur = 24;
+  drawText(winnerText, canvas.width / 2, canvas.height / 2 - 42, 48, colors.lime);
+  ctx.restore();
+  drawText("Final Duel Complete", canvas.width / 2, canvas.height / 2 + 12, 18, colors.muted);
+  drawText("Press R to Restart", canvas.width / 2, canvas.height / 2 + 54, 24, colors.cyan);
 }
 
 function gameLoop(currentTime = 0): void {
@@ -800,6 +1034,7 @@ function gameLoop(currentTime = 0): void {
     updateBullets(deltaSeconds);
     checkBulletHits(currentTime);
     updateHitMarkers(currentTime);
+    updateParticles(deltaSeconds, currentTime);
     updatePowerups(currentTime);
     updateFloatingTexts(currentTime);
     drawPlaying();
