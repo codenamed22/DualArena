@@ -57,10 +57,16 @@ body {
     0 0 58px rgba(255, 61, 242, 0.14);
 }
 
-canvas {
+#game-root {
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  max-height: calc(100vh - 56px);
+}
+
+#game-root canvas {
   display: block;
   width: 100%;
-  max-height: calc(100vh - 56px);
+  height: 100%;
   aspect-ratio: 16 / 9;
   background: #050712;
   border: 2px solid rgba(40, 240, 255, 0.74);
