@@ -1,5 +1,8 @@
 import Phaser from "phaser";
-import { COLORS, GAME_HEIGHT, GAME_WIDTH, SCENE_KEYS } from "../utils/constants";
+import { GAME_WIDTH, SCENE_KEYS } from "../utils/constants";
+import { AnimatedBackground } from "../utils/background";
+import { addSceneBloom, applyNeonGlow, bodyStyle, headingStyle, HEX, titleStyle } from "../utils/theme";
+import { audio } from "../utils/audio";
 
 export class MenuScene extends Phaser.Scene {
   constructor() {
@@ -7,61 +10,54 @@ export class MenuScene extends Phaser.Scene {
   }
 
   create(): void {
-    this.drawBackground();
+    new AnimatedBackground(this, { gridColor: 0x28f0ff });
+    addSceneBloom(this, 0.7);
+
     this.addTitle();
     this.addControls();
 
+    this.add
+      .text(GAME_WIDTH / 2, 494, "Press  F  for Fullscreen", bodyStyle(15, HEX.muted, "600"))
+      .setOrigin(0.5);
+
     this.input.keyboard?.once("keydown-ENTER", () => {
-      this.scene.start(SCENE_KEYS.MAP_SELECT);
+      audio.resume();
+      audio.uiSelect();
+      this.cameras.main.fadeOut(280, 5, 7, 18);
+      this.cameras.main.once("camerafadeoutcomplete", () => this.scene.start(SCENE_KEYS.MAP_SELECT));
     });
-  }
 
-  private drawBackground(): void {
-    this.add.rectangle(GAME_WIDTH / 2, GAME_HEIGHT / 2, GAME_WIDTH, GAME_HEIGHT, COLORS.background);
-
-    const grid = this.add.graphics();
-    grid.lineStyle(1, COLORS.cyan, 0.12);
-
-    for (let x = 0; x <= GAME_WIDTH; x += 48) {
-      grid.moveTo(x, 0);
-      grid.lineTo(x, GAME_HEIGHT);
-    }
-
-    for (let y = 0; y <= GAME_HEIGHT; y += 48) {
-      grid.moveTo(0, y);
-      grid.lineTo(GAME_WIDTH, y);
-    }
-
-    grid.strokePath();
-    this.add.image(160, 110, "soft-glow-cyan").setScale(3.4).setAlpha(0.32);
-    this.add.image(800, 420, "soft-glow-pink").setScale(3.6).setAlpha(0.26);
+    this.cameras.main.fadeIn(420, 5, 7, 18);
   }
 
   private addTitle(): void {
-    this.add.text(GAME_WIDTH / 2, 118, "DuelByte Arena", {
-      color: "#f4f7ff",
-      fontFamily: "Arial, Helvetica, sans-serif",
-      fontSize: "62px",
-      fontStyle: "900",
-    }).setOrigin(0.5).setShadow(0, 0, "#28f0ff", 18);
+    const title = this.add
+      .text(GAME_WIDTH / 2, 116, "DUELBYTE ARENA", titleStyle(64, HEX.text))
+      .setOrigin(0.5);
+    applyNeonGlow(title, HEX.cyan, 22);
 
-    this.add.text(GAME_WIDTH / 2, 188, "Same keyboard. No mercy.", {
-      color: "#b6ff4d",
-      fontFamily: "Arial, Helvetica, sans-serif",
-      fontSize: "24px",
-      fontStyle: "700",
-    }).setOrigin(0.5);
+    // Subtle breathing pulse on the title glow.
+    this.tweens.add({
+      targets: title,
+      scale: 1.02,
+      duration: 2400,
+      yoyo: true,
+      repeat: -1,
+      ease: "Sine.easeInOut",
+    });
 
-    const prompt = this.add.text(GAME_WIDTH / 2, 272, "Press Enter to Start", {
-      color: "#28f0ff",
-      fontFamily: "Arial, Helvetica, sans-serif",
-      fontSize: "28px",
-      fontStyle: "800",
-    }).setOrigin(0.5).setShadow(0, 0, "#28f0ff", 14);
+    this.add
+      .text(GAME_WIDTH / 2, 184, "Same keyboard. No mercy.", headingStyle(24, HEX.lime))
+      .setOrigin(0.5);
+
+    const prompt = this.add
+      .text(GAME_WIDTH / 2, 268, "PRESS ENTER TO START", headingStyle(26, HEX.cyan))
+      .setOrigin(0.5);
+    applyNeonGlow(prompt, HEX.cyan, 14);
 
     this.tweens.add({
       targets: prompt,
-      alpha: 0.45,
+      alpha: 0.4,
       duration: 720,
       yoyo: true,
       repeat: -1,
@@ -70,27 +66,30 @@ export class MenuScene extends Phaser.Scene {
   }
 
   private addControls(): void {
-    this.addControlCard(300, "P1 Controls", "Move: W A S D", "Attack: Space", "#28f0ff");
-    this.addControlCard(660, "P2 Controls", "Move: Arrow Keys", "Attack: Enter / Shift", "#ff3df2");
+    this.addControlCard(300, "PLAYER 1", "MOVE", "W  A  S  D", "ATTACK", "SPACE", HEX.cyan, 0x28f0ff);
+    this.addControlCard(660, "PLAYER 2", "MOVE", "ARROW KEYS", "ATTACK", "ENTER / SHIFT", HEX.pink, 0xff3df2);
   }
 
-  private addControlCard(x: number, title: string, move: string, attack: string, color: string): void {
-    this.add.rectangle(x, 386, 306, 128, 0x060a18, 0.82).setStrokeStyle(2, Phaser.Display.Color.HexStringToColor(color).color, 0.55);
-    this.add.text(x, 350, title, {
-      color,
-      fontFamily: "Arial, Helvetica, sans-serif",
-      fontSize: "22px",
-      fontStyle: "800",
-    }).setOrigin(0.5);
-    this.add.text(x, 388, move, {
-      color: "#f4f7ff",
-      fontFamily: "Arial, Helvetica, sans-serif",
-      fontSize: "17px",
-    }).setOrigin(0.5);
-    this.add.text(x, 418, attack, {
-      color: "#9aa6c8",
-      fontFamily: "Arial, Helvetica, sans-serif",
-      fontSize: "17px",
-    }).setOrigin(0.5);
+  private addControlCard(
+    x: number,
+    title: string,
+    moveLabel: string,
+    move: string,
+    attackLabel: string,
+    attack: string,
+    color: string,
+    colorNum: number,
+  ): void {
+    this.add
+      .rectangle(x, 392, 312, 140, 0x060a18, 0.78)
+      .setStrokeStyle(2, colorNum, 0.6);
+
+    const heading = this.add.text(x, 346, title, headingStyle(22, color)).setOrigin(0.5);
+    applyNeonGlow(heading, color, 10);
+
+    this.add.text(x - 120, 384, moveLabel, bodyStyle(14, HEX.muted, "700")).setOrigin(0, 0.5);
+    this.add.text(x + 130, 384, move, bodyStyle(18, HEX.text, "700")).setOrigin(1, 0.5);
+    this.add.text(x - 120, 418, attackLabel, bodyStyle(14, HEX.muted, "700")).setOrigin(0, 0.5);
+    this.add.text(x + 130, 418, attack, bodyStyle(18, HEX.text, "700")).setOrigin(1, 0.5);
   }
 }

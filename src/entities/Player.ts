@@ -9,6 +9,14 @@ export type PlayerControls = {
   right: Phaser.Input.Keyboard.Key;
 };
 
+/** A timed buff currently affecting the player, surfaced to the HUD as a chip. */
+export type ActiveEffect = {
+  id: string;
+  label: string;
+  color: number;
+  secondsLeft: number;
+};
+
 type PlayerConfig = {
   id: PlayerId;
   x: number;
@@ -37,10 +45,14 @@ export class Player {
   private readonly spawnPosition: Phaser.Math.Vector2;
   private readonly spawnFacing: Phaser.Math.Vector2;
   private facing = new Phaser.Math.Vector2(1, 0);
+  private obstacles: Phaser.Geom.Rectangle[] = [];
   private health = this.maxHealth;
   private shieldUntil = 0;
   private slowUntil = 0;
   private slowMultiplier = 1;
+  private speedUntil = 0;
+  private megaUntil = 0;
+  private readonly speedBoostMultiplier = 1.6;
 
   constructor(scene: Phaser.Scene, config: PlayerConfig) {
     this.id = config.id;
@@ -79,16 +91,24 @@ export class Player {
     this.facingIndicator.rotation = this.facing.angle();
   }
 
+  setObstacles(obstacles: Phaser.Geom.Rectangle[]): void {
+    this.obstacles = obstacles;
+  }
+
   update(deltaSeconds: number): void {
     const movement = this.getMovementVector();
 
     if (movement.lengthSq() > 0) {
       movement.normalize();
       this.facing = movement.clone();
-      const speedMultiplier = this.slowUntil > this.body.scene.time.now ? this.slowMultiplier : 1;
+      const now = this.body.scene.time.now;
+      const slowFactor = this.slowUntil > now ? this.slowMultiplier : 1;
+      const boostFactor = this.speedUntil > now ? this.speedBoostMultiplier : 1;
+      const step = this.speed * slowFactor * boostFactor * deltaSeconds;
 
-      this.container.x += movement.x * this.speed * speedMultiplier * deltaSeconds;
-      this.container.y += movement.y * this.speed * speedMultiplier * deltaSeconds;
+      // Move and resolve collisions per-axis so players slide along cover.
+      this.moveAxis("x", movement.x * step);
+      this.moveAxis("y", movement.y * step);
       this.facingIndicator.rotation = this.facing.angle();
     }
 
@@ -96,6 +116,39 @@ export class Player {
     this.container.y = Phaser.Math.Clamp(this.container.y, this.bounds.top + 24, this.bounds.bottom - 24);
 
     this.updateShieldVisual();
+  }
+
+  private moveAxis(axis: "x" | "y", delta: number): void {
+    if (delta === 0) {
+      return;
+    }
+
+    const container = this.container;
+    if (axis === "x") {
+      container.x += delta;
+    } else {
+      container.y += delta;
+    }
+
+    for (const rect of this.obstacles) {
+      if (!this.overlapsRect(container.x, container.y, rect)) {
+        continue;
+      }
+
+      if (axis === "x") {
+        container.x = delta > 0 ? rect.left - this.radius : rect.right + this.radius;
+      } else {
+        container.y = delta > 0 ? rect.top - this.radius : rect.bottom + this.radius;
+      }
+    }
+  }
+
+  private overlapsRect(cx: number, cy: number, rect: Phaser.Geom.Rectangle): boolean {
+    const closestX = Phaser.Math.Clamp(cx, rect.left, rect.right);
+    const closestY = Phaser.Math.Clamp(cy, rect.top, rect.bottom);
+    const dx = cx - closestX;
+    const dy = cy - closestY;
+    return dx * dx + dy * dy < this.radius * this.radius;
   }
 
   get position(): Phaser.Math.Vector2 {
@@ -135,6 +188,22 @@ export class Player {
     this.updateShieldVisual();
   }
 
+  activateSpeed(durationMs: number): void {
+    this.speedUntil = this.body.scene.time.now + durationMs;
+  }
+
+  activateMega(durationMs: number): void {
+    this.megaUntil = this.body.scene.time.now + durationMs;
+  }
+
+  get hasSpeed(): boolean {
+    return this.speedUntil > this.body.scene.time.now;
+  }
+
+  get hasMega(): boolean {
+    return this.megaUntil > this.body.scene.time.now;
+  }
+
   applySlow(durationMs: number, multiplier: number): void {
     this.slowUntil = this.body.scene.time.now + durationMs;
     this.slowMultiplier = multiplier;
@@ -148,6 +217,8 @@ export class Player {
     this.shieldUntil = 0;
     this.slowUntil = 0;
     this.slowMultiplier = 1;
+    this.speedUntil = 0;
+    this.megaUntil = 0;
     this.body.setFillStyle(this.color, 0.95);
     this.body.setStrokeStyle(3, this.accentColor, 1);
     this.updateShieldVisual();
@@ -155,6 +226,40 @@ export class Player {
 
   getShieldTimeLeft(): number {
     return Math.max(this.shieldUntil - this.body.scene.time.now, 0);
+  }
+
+  /** Active timed buffs, newest-relevant first, for HUD chip rendering. */
+  getActiveEffects(): ActiveEffect[] {
+    const effects: ActiveEffect[] = [];
+
+    if (this.hasShield) {
+      effects.push({
+        id: "shield",
+        label: "SHIELD",
+        color: 0xffe66d,
+        secondsLeft: Math.ceil(this.getShieldTimeLeft() / 1000),
+      });
+    }
+
+    if (this.hasSpeed) {
+      effects.push({
+        id: "speed",
+        label: "SPEED",
+        color: 0xb6ff4d,
+        secondsLeft: Math.ceil((this.speedUntil - this.body.scene.time.now) / 1000),
+      });
+    }
+
+    if (this.hasMega) {
+      effects.push({
+        id: "mega",
+        label: "MEGA",
+        color: 0xff6b2b,
+        secondsLeft: Math.ceil((this.megaUntil - this.body.scene.time.now) / 1000),
+      });
+    }
+
+    return effects;
   }
 
   private flash(): void {

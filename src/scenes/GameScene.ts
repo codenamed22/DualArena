@@ -1,9 +1,13 @@
 import Phaser from "phaser";
 import { getArenaMap, type ArenaMap, type ArenaMapId } from "../config/maps";
 import { Bullet } from "../entities/Bullet";
+import { BulletPool } from "../entities/BulletPool";
 import { Player } from "../entities/Player";
 import { Powerup, type PowerupType } from "../entities/Powerup";
 import { ARENA_BOUNDS, COLORS, GAME_HEIGHT, GAME_WIDTH, SCENE_KEYS } from "../utils/constants";
+import { addSceneBloom, bodyStyle, HEX, titleStyle } from "../utils/theme";
+import { audio } from "../utils/audio";
+import { Hud } from "../ui/Hud";
 
 type GameSceneData = {
   mapId?: ArenaMapId;
@@ -21,17 +25,13 @@ export class GameScene extends Phaser.Scene {
   private selectedMap: ArenaMap = getArenaMap("cyber-core");
   private players: Player[] = [];
   private bullets: Bullet[] = [];
+  private bulletPool!: BulletPool;
   private arenaBounds = new Phaser.Geom.Rectangle(ARENA_BOUNDS.x, ARENA_BOUNDS.y, ARENA_BOUNDS.width, ARENA_BOUNDS.height);
-  private playerOneHealthBar?: Phaser.GameObjects.Rectangle;
-  private playerTwoHealthBar?: Phaser.GameObjects.Rectangle;
-  private playerOneHealthText?: Phaser.GameObjects.Text;
-  private playerTwoHealthText?: Phaser.GameObjects.Text;
-  private playerOneShieldText?: Phaser.GameObjects.Text;
-  private playerTwoShieldText?: Phaser.GameObjects.Text;
-  private roundTitleText?: Phaser.GameObjects.Text;
-  private scoreText?: Phaser.GameObjects.Text;
-  private eventBannerText?: Phaser.GameObjects.Text;
+  private obstacles: Phaser.Geom.Rectangle[] = [];
+  private hud!: Hud;
   private countdownText?: Phaser.GameObjects.Text;
+  private roundEndsAt = 0;
+  private roundTimeLeftMs = 0;
   private roundOverlayObjects: Phaser.GameObjects.GameObject[] = [];
   private playerOneAttack?: Phaser.Input.Keyboard.Key;
   private playerTwoEnterAttack?: Phaser.Input.Keyboard.Key;
@@ -49,9 +49,13 @@ export class GameScene extends Phaser.Scene {
   private roundNumber = 1;
   private roundWins: Record<"P1" | "P2", number> = { P1: 0, P2: 0 };
 
+  private readonly roundDurationMs = 90000;
+  private readonly winsNeeded = 2;
   private readonly shootCooldown = 260;
   private readonly healthRestoreAmount = 25;
   private readonly shieldDuration = 5000;
+  private readonly speedDuration = 5000;
+  private readonly megaDuration = 6000;
   private readonly powerupRespawnDelay = 1700;
   private readonly arenaEventWarningDuration = 1000;
   private readonly arenaEventActiveDuration = 2200;
@@ -68,6 +72,8 @@ export class GameScene extends Phaser.Scene {
   create(): void {
     this.players = [];
     this.bullets = [];
+    this.bulletPool = new BulletPool(this);
+    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => this.bulletPool.destroyAll());
     this.clearPowerups();
     this.lastShotAt = { P1: -Infinity, P2: -Infinity };
     this.lastEventDamageAt = { P1: -Infinity, P2: -Infinity };
@@ -78,29 +84,43 @@ export class GameScene extends Phaser.Scene {
     this.roundNumber = 1;
     this.roundWins = { P1: 0, P2: 0 };
     this.drawArena();
-    this.drawHud();
+    this.drawObstacles();
+    this.hud = new Hud(this, this.selectedMap.name, this.selectedMap.accentColor, this.winsNeeded);
     this.createPlayers();
+    this.players.forEach((player) => player.setObstacles(this.obstacles));
     this.createAttackKeys();
     this.startCountdown();
+
+    addSceneBloom(this, 0.45);
+    this.cameras.main.fadeIn(360, 5, 7, 18);
 
     this.input.keyboard?.on("keydown-R", () => {
       this.resetMatch();
     });
   }
 
-  update(_time: number, delta: number): void {
+  update(time: number, delta: number): void {
     const deltaSeconds = delta / 1000;
 
     if (this.combatActive && this.roundPhase === "playing") {
       this.players.forEach((player) => player.update(deltaSeconds));
-      this.updateShooting(_time);
+      this.updateShooting(time);
       this.updateBullets(deltaSeconds);
       this.checkBulletHits();
-      this.updatePowerupEffects(_time);
-      this.updateArenaEvent(_time);
+      this.updatePowerupEffects(time);
+      this.updateArenaEvent(time);
+      this.updateRoundTimer(time);
     }
 
     this.updateHud();
+  }
+
+  private updateRoundTimer(time: number): void {
+    this.roundTimeLeftMs = Math.max(0, this.roundEndsAt - time);
+
+    if (this.roundTimeLeftMs <= 0) {
+      this.endRoundByTime();
+    }
   }
 
   private drawArena(): void {
@@ -147,36 +167,57 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
-  private drawHud(): void {
-    this.add.rectangle(180, 42, 270, 58, 0x050814, 0.86).setStrokeStyle(2, 0x28f0ff, 0.55);
-    this.add.rectangle(780, 42, 270, 58, 0x050814, 0.86).setStrokeStyle(2, 0xff3df2, 0.55);
-    this.add.rectangle(GAME_WIDTH / 2, 42, 288, 64, 0x050814, 0.86).setStrokeStyle(2, this.selectedMap.accentColor, 0.6);
+  /** Symmetric cover blocks per map — block bullets and movement, keep both sides fair. */
+  private getArenaObstacles(): Phaser.Geom.Rectangle[] {
+    const centered = (cx: number, cy: number, w: number, h: number): Phaser.Geom.Rectangle =>
+      new Phaser.Geom.Rectangle(cx - w / 2, cy - h / 2, w, h);
+    const cx = this.arenaBounds.centerX;
+    const cy = this.arenaBounds.centerY;
 
-    this.add.text(58, 26, "PLAYER 1", { color: "#28f0ff", fontFamily: "Arial", fontSize: "15px", fontStyle: "800" });
-    this.add.rectangle(180, 58, 218, 12, 0x01030c, 0.9).setStrokeStyle(1, 0xffffff, 0.18);
-    this.playerOneHealthBar = this.add.rectangle(71, 58, 218, 12, 0x28f0ff, 1).setOrigin(0, 0.5);
-    this.playerOneHealthText = this.add.text(58, 49, "100 / 100", { color: "#f4f7ff", fontFamily: "Arial", fontSize: "14px" });
-    this.playerOneShieldText = this.add.text(58, 68, "", { color: "#ffe66d", fontFamily: "Arial", fontSize: "12px", fontStyle: "800" });
-    this.add.text(830, 26, "PLAYER 2", { color: "#ff3df2", fontFamily: "Arial", fontSize: "15px", fontStyle: "800" }).setOrigin(1, 0);
-    this.add.rectangle(780, 58, 218, 12, 0x01030c, 0.9).setStrokeStyle(1, 0xffffff, 0.18);
-    this.playerTwoHealthBar = this.add.rectangle(889, 58, 218, 12, 0xff3df2, 1).setOrigin(1, 0.5);
-    this.playerTwoHealthText = this.add.text(830, 49, "100 / 100", { color: "#f4f7ff", fontFamily: "Arial", fontSize: "14px" }).setOrigin(1, 0);
-    this.playerTwoShieldText = this.add.text(830, 68, "", { color: "#ffe66d", fontFamily: "Arial", fontSize: "12px", fontStyle: "800" }).setOrigin(1, 0);
+    if (this.selectedMap.id === "forest") {
+      return [
+        centered(cx - 150, cy - 84, 48, 48),
+        centered(cx + 150, cy - 84, 48, 48),
+        centered(cx - 150, cy + 84, 48, 48),
+        centered(cx + 150, cy + 84, 48, 48),
+        centered(cx, cy, 58, 58),
+      ];
+    }
 
-    this.roundTitleText = this.add.text(GAME_WIDTH / 2, 28, "Round 1", { color: "#f4f7ff", fontFamily: "Arial", fontSize: "18px", fontStyle: "900" }).setOrigin(0.5);
-    this.add.text(GAME_WIDTH / 2, 52, this.selectedMap.name, { color: "#b6ff4d", fontFamily: "Arial", fontSize: "13px" }).setOrigin(0.5);
-    this.scoreText = this.add.text(GAME_WIDTH / 2, 70, "P1 0 - 0 P2 | Last Player Standing", {
-      color: "#9aa6c8",
-      fontFamily: "Arial",
-      fontSize: "11px",
-      fontStyle: "700",
-    }).setOrigin(0.5);
-    this.eventBannerText = this.add.text(GAME_WIDTH / 2, 92, "", {
-      color: "#ffe66d",
-      fontFamily: "Arial",
-      fontSize: "13px",
-      fontStyle: "900",
-    }).setOrigin(0.5);
+    if (this.selectedMap.id === "volcano") {
+      return [
+        centered(cx - 150, cy, 46, 150),
+        centered(cx + 150, cy, 46, 150),
+        centered(cx, cy - 104, 96, 30),
+        centered(cx, cy + 104, 96, 30),
+      ];
+    }
+
+    // cyber-core: three vertical slabs along the midline to peek around.
+    return [
+      centered(cx - 150, cy, 28, 128),
+      centered(cx, cy, 30, 128),
+      centered(cx + 150, cy, 28, 128),
+    ];
+  }
+
+  private drawObstacles(): void {
+    this.obstacles = this.getArenaObstacles();
+
+    this.obstacles.forEach((rect) => {
+      this.add
+        .rectangle(rect.centerX, rect.centerY, rect.width, rect.height, 0x0e1630, 1)
+        .setStrokeStyle(3, this.selectedMap.accentColor, 0.95)
+        .setDepth(14);
+      this.add
+        .rectangle(rect.centerX, rect.centerY, rect.width - 8, rect.height - 8)
+        .setStrokeStyle(1, this.selectedMap.secondaryColor, 0.5)
+        .setDepth(14);
+    });
+  }
+
+  private hitsObstacle(bullet: Bullet): boolean {
+    return this.obstacles.some((rect) => rect.contains(bullet.sprite.x, bullet.sprite.y));
   }
 
   private createPlayers(): void {
@@ -218,11 +259,9 @@ export class GameScene extends Phaser.Scene {
 
     this.players.push(playerOne, playerTwo);
 
-    this.add.text(GAME_WIDTH / 2, 494, "P1: WASD + Space    P2: Arrow Keys + Enter / Shift", {
-      color: "#9aa6c8",
-      fontFamily: "Arial",
-      fontSize: "15px",
-    }).setOrigin(0.5);
+    this.add
+      .text(GAME_WIDTH / 2, 494, "P1: WASD + Space      P2: Arrow Keys + Enter / Shift", bodyStyle(15, HEX.muted, "600"))
+      .setOrigin(0.5);
   }
 
   private createAttackKeys(): void {
@@ -238,13 +277,13 @@ export class GameScene extends Phaser.Scene {
   private startCountdown(): void {
     this.roundPhase = "countdown";
     this.combatActive = false;
+    this.roundTimeLeftMs = this.roundDurationMs;
     this.countdownText?.destroy();
-    this.countdownText = this.add.text(GAME_WIDTH / 2, GAME_HEIGHT / 2, "3", {
-      color: "#f4f7ff",
-      fontFamily: "Arial, Helvetica, sans-serif",
-      fontSize: "88px",
-      fontStyle: "900",
-    }).setOrigin(0.5).setDepth(50).setShadow(0, 0, "#28f0ff", 18);
+    this.countdownText = this.add
+      .text(GAME_WIDTH / 2, GAME_HEIGHT / 2, "3", titleStyle(88, HEX.text))
+      .setOrigin(0.5)
+      .setDepth(50)
+      .setShadow(0, 0, "#28f0ff", 18);
 
     const steps = ["3", "2", "1", "DUEL!"];
 
@@ -256,6 +295,12 @@ export class GameScene extends Phaser.Scene {
 
         this.countdownText.setText(step);
         this.countdownText.setScale(step === "DUEL!" ? 0.7 : 1);
+
+        if (step === "DUEL!") {
+          audio.duel();
+        } else {
+          audio.countdownTick();
+        }
         this.tweens.add({
           targets: this.countdownText,
           scale: step === "DUEL!" ? 1.12 : 1.24,
@@ -280,6 +325,8 @@ export class GameScene extends Phaser.Scene {
     this.nextPowerupSpawnAt = this.time.now + 1000;
     this.scheduleArenaEvent(this.time.now);
     this.lastShotAt = { P1: -Infinity, P2: -Infinity };
+    this.roundEndsAt = this.time.now + this.roundDurationMs;
+    this.roundTimeLeftMs = this.roundDurationMs;
   }
 
   private resetRound(): void {
@@ -298,7 +345,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   private clearRoundObjects(): void {
-    this.bullets.forEach((bullet) => bullet.destroy());
+    this.bullets.forEach((bullet) => this.bulletPool.release(bullet));
     this.bullets = [];
     this.clearPowerups();
     this.clearArenaEvent();
@@ -332,10 +379,54 @@ export class GameScene extends Phaser.Scene {
     const direction = player.facingDirection;
     const spawnDistance = player.radius + 14;
     const position = player.position.add(direction.clone().scale(spawnDistance));
-    const bullet = new Bullet(this, player.id, position.x, position.y, direction, player.color);
+    const bullet = this.bulletPool.obtain();
+    bullet.spawn(player.id, position.x, position.y, direction, player.color, player.hasMega);
 
     this.bullets.push(bullet);
     this.lastShotAt[player.id] = time;
+    this.muzzleFlash(position.x, position.y, player.color);
+    audio.shoot();
+  }
+
+  private muzzleFlash(x: number, y: number, color: number): void {
+    const flash = this.add.circle(x, y, 10, color, 0.9).setDepth(19).setBlendMode(Phaser.BlendModes.ADD);
+    this.tweens.add({
+      targets: flash,
+      scale: 2.4,
+      alpha: 0,
+      duration: 150,
+      ease: "Cubic.easeOut",
+      onComplete: () => flash.destroy(),
+    });
+  }
+
+  private hitRing(x: number, y: number, color: number): void {
+    const ring = this.add.circle(x, y, 8, color, 0).setStrokeStyle(3, color, 0.9).setDepth(19).setBlendMode(Phaser.BlendModes.ADD);
+    this.tweens.add({
+      targets: ring,
+      scale: 3,
+      alpha: 0,
+      duration: 240,
+      ease: "Cubic.easeOut",
+      onComplete: () => ring.destroy(),
+    });
+  }
+
+  private cameraPunch(amount: number): void {
+    this.tweens.add({
+      targets: this.cameras.main,
+      zoom: 1 + amount,
+      duration: 60,
+      yoyo: true,
+      ease: "Quad.easeOut",
+    });
+  }
+
+  private playerDeath(player: Player): void {
+    this.spawnImpact(player.position.x, player.position.y, player.color, 30, 78);
+    this.hitRing(player.position.x, player.position.y, player.color);
+    this.cameras.main.flash(180, 255, 255, 255, false);
+    this.cameras.main.shake(280, 0.014);
   }
 
   private updateBullets(deltaSeconds: number): void {
@@ -345,7 +436,14 @@ export class GameScene extends Phaser.Scene {
       bullet.update(deltaSeconds);
 
       if (bullet.isOutside(this.arenaBounds)) {
-        bullet.destroy();
+        this.bulletPool.release(bullet);
+        this.bullets.splice(index, 1);
+        continue;
+      }
+
+      if (this.hitsObstacle(bullet)) {
+        this.spawnImpact(bullet.sprite.x, bullet.sprite.y, bullet.sprite.fillColor, 8, 28);
+        this.bulletPool.release(bullet);
         this.bullets.splice(index, 1);
       }
     }
@@ -369,27 +467,37 @@ export class GameScene extends Phaser.Scene {
       const hadShield = target.hasShield;
       const damageDealt = target.takeDamage(bullet.damage);
 
-      this.spawnImpact(bullet.sprite.x, bullet.sprite.y, hadShield ? 0xffe66d : bullet.sprite.fillColor);
+      if (hadShield) {
+        audio.shieldHit();
+      } else {
+        audio.hit();
+      }
+
+      const impactColor = hadShield ? 0xffe66d : bullet.sprite.fillColor;
+      this.spawnImpact(bullet.sprite.x, bullet.sprite.y, impactColor, bullet.mega ? 20 : 12);
+      this.hitRing(bullet.sprite.x, bullet.sprite.y, impactColor);
       this.showFloatingText(target.position.x, target.position.y - 48, hadShield ? `SHIELD -${damageDealt}` : `-${damageDealt}`, hadShield ? "#ffe66d" : "#f4f7ff");
-      this.cameras.main.shake(120, 0.004);
-      bullet.destroy();
+      this.cameras.main.shake(120, bullet.mega ? 0.008 : 0.004);
+      this.cameraPunch(bullet.mega ? 0.03 : 0.016);
+      this.bulletPool.release(bullet);
       this.bullets.splice(bulletIndex, 1);
 
       if (target.currentHealth <= 0) {
         const winner = this.players.find((player) => player.id === bullet.ownerId);
 
         if (winner) {
+          this.playerDeath(target);
           this.endRound(winner);
         }
       }
     }
   }
 
-  private spawnImpact(x: number, y: number, color: number): void {
-    for (let index = 0; index < 12; index += 1) {
+  private spawnImpact(x: number, y: number, color: number, count = 12, maxDistance = 48): void {
+    for (let index = 0; index < count; index += 1) {
       const particle = this.add.circle(x, y, Phaser.Math.Between(2, 4), color, 0.92);
       const angle = Phaser.Math.FloatBetween(0, Math.PI * 2);
-      const distance = Phaser.Math.Between(20, 48);
+      const distance = Phaser.Math.Between(20, maxDistance);
 
       this.tweens.add({
         targets: particle,
@@ -407,20 +515,44 @@ export class GameScene extends Phaser.Scene {
   private updateHud(): void {
     const [playerOne, playerTwo] = this.players;
 
-    if (playerOne && this.playerOneHealthBar && this.playerOneHealthText) {
-      this.playerOneHealthBar.width = 218 * (playerOne.currentHealth / playerOne.maxHealth);
-      this.playerOneHealthText.setText(`${playerOne.currentHealth} / ${playerOne.maxHealth}`);
-      this.playerOneShieldText?.setText(playerOne.hasShield ? `SHIELD ${Math.ceil(playerOne.getShieldTimeLeft() / 1000)}s` : "");
+    if (!playerOne || !playerTwo) {
+      return;
     }
 
-    if (playerTwo && this.playerTwoHealthBar && this.playerTwoHealthText) {
-      this.playerTwoHealthBar.width = 218 * (playerTwo.currentHealth / playerTwo.maxHealth);
-      this.playerTwoHealthText.setText(`${playerTwo.currentHealth} / ${playerTwo.maxHealth}`);
-      this.playerTwoShieldText?.setText(playerTwo.hasShield ? `SHIELD ${Math.ceil(playerTwo.getShieldTimeLeft() / 1000)}s` : "");
+    this.hud.update({
+      p1Health: playerOne.currentHealth,
+      p2Health: playerTwo.currentHealth,
+      maxHealth: playerOne.maxHealth,
+      p1Effects: playerOne.getActiveEffects(),
+      p2Effects: playerTwo.getActiveEffects(),
+      roundNumber: this.roundNumber,
+      wins: this.roundWins,
+      winsNeeded: this.winsNeeded,
+      timeLeftMs: this.roundTimeLeftMs,
+    });
+  }
+
+  private endRoundByTime(): void {
+    if (this.roundPhase !== "playing") {
+      return;
     }
 
-    this.roundTitleText?.setText(`Round ${this.roundNumber}`);
-    this.scoreText?.setText(`P1 ${this.roundWins.P1} - ${this.roundWins.P2} P2 | Last Player Standing`);
+    const [playerOne, playerTwo] = this.players;
+
+    if (!playerOne || !playerTwo) {
+      return;
+    }
+
+    if (playerOne.currentHealth === playerTwo.currentHealth) {
+      this.roundPhase = "round-over";
+      this.combatActive = false;
+      this.clearRoundObjects();
+      this.showDrawResult();
+      return;
+    }
+
+    const winner = playerOne.currentHealth > playerTwo.currentHealth ? playerOne : playerTwo;
+    this.endRound(winner);
   }
 
   private updatePowerupEffects(time: number): void {
@@ -453,7 +585,7 @@ export class GameScene extends Phaser.Scene {
   private scheduleArenaEvent(time: number): void {
     this.arenaEventPhase = "idle";
     this.nextArenaEventAt = time + Phaser.Math.Between(12000, 15000);
-    this.eventBannerText?.setText("");
+    this.hud.setEventBanner("");
   }
 
   private updateArenaEvent(time: number): void {
@@ -469,7 +601,7 @@ export class GameScene extends Phaser.Scene {
   private startArenaEventWarning(): void {
     this.clearArenaEvent();
     this.arenaEventPhase = "warning";
-    this.eventBannerText?.setText(this.getArenaEventBanner());
+    this.hud.setEventBanner(this.getArenaEventBanner());
     this.createArenaEventZones(false);
 
     const timer = this.time.delayedCall(this.arenaEventWarningDuration, () => {
@@ -588,6 +720,7 @@ export class GameScene extends Phaser.Scene {
         const winner = this.players.find((candidate) => candidate.id !== player.id);
 
         if (winner) {
+          this.playerDeath(player);
           this.endRound(winner);
         }
       }
@@ -603,7 +736,7 @@ export class GameScene extends Phaser.Scene {
     });
     this.arenaEventZones = [];
     this.arenaEventPhase = "idle";
-    this.eventBannerText?.setText("");
+    this.hud.setEventBanner("");
   }
 
   private getArenaEventBanner(): string {
@@ -643,7 +776,8 @@ export class GameScene extends Phaser.Scene {
   }
 
   private spawnPowerup(): void {
-    const type: PowerupType = Math.random() > 0.5 ? "health-core" : "shield-bubble";
+    const types: PowerupType[] = ["health-core", "shield-bubble", "speed-surge", "mega-shot"];
+    const type = Phaser.Utils.Array.GetRandom(types);
     const position = this.getSafePowerupPosition();
 
     this.activePowerup = new Powerup(this, type, position.x, position.y);
@@ -663,8 +797,12 @@ export class GameScene extends Phaser.Scene {
         player.position.x,
         player.position.y,
       ) > 120);
+      const safeFromObstacles = this.obstacles.every((rect) => {
+        const inflated = new Phaser.Geom.Rectangle(rect.x - 40, rect.y - 40, rect.width + 80, rect.height + 80);
+        return !inflated.contains(position.x, position.y);
+      });
 
-      if (safeFromPlayers) {
+      if (safeFromPlayers && safeFromObstacles) {
         return position;
       }
     }
@@ -677,12 +815,30 @@ export class GameScene extends Phaser.Scene {
       player.heal(this.healthRestoreAmount);
       this.showFloatingText(player.position.x, player.position.y - 52, "+25 HP", "#b6ff4d");
       this.spawnImpact(player.position.x, player.position.y, 0xb6ff4d);
+      audio.powerupHealth();
+      return;
+    }
+
+    if (powerup.type === "speed-surge") {
+      player.activateSpeed(this.speedDuration);
+      this.showFloatingText(player.position.x, player.position.y - 52, "SPEED!", "#b6ff4d");
+      this.spawnImpact(player.position.x, player.position.y, 0xb6ff4d);
+      audio.powerupHealth();
+      return;
+    }
+
+    if (powerup.type === "mega-shot") {
+      player.activateMega(this.megaDuration);
+      this.showFloatingText(player.position.x, player.position.y - 52, "MEGA SHOT!", "#ff6b2b");
+      this.spawnImpact(player.position.x, player.position.y, 0xff6b2b);
+      audio.powerupShield();
       return;
     }
 
     player.activateShield(this.shieldDuration);
     this.showFloatingText(player.position.x, player.position.y - 52, "SHIELD", "#ffe66d");
     this.spawnImpact(player.position.x, player.position.y, 0x28f0ff);
+    audio.powerupShield();
   }
 
   private clearPowerups(): void {
@@ -691,12 +847,10 @@ export class GameScene extends Phaser.Scene {
   }
 
   private showFloatingText(x: number, y: number, text: string, color: string): void {
-    const label = this.add.text(x, y, text, {
-      color,
-      fontFamily: "Arial, Helvetica, sans-serif",
-      fontSize: "18px",
-      fontStyle: "900",
-    }).setOrigin(0.5).setDepth(30);
+    const label = this.add
+      .text(x, y, text, titleStyle(18, color))
+      .setOrigin(0.5)
+      .setDepth(30);
 
     this.tweens.add({
       targets: label,
@@ -718,12 +872,15 @@ export class GameScene extends Phaser.Scene {
     this.roundWins[winner.id] += 1;
     this.clearRoundObjects();
 
-    if (this.roundWins[winner.id] >= 2) {
-      this.time.delayedCall(500, () => {
-        this.scene.start(SCENE_KEYS.WINNER, {
-          winnerId: winner.id,
-          mapId: this.selectedMap.id,
-          score: { ...this.roundWins },
+    if (this.roundWins[winner.id] >= this.winsNeeded) {
+      this.time.delayedCall(650, () => {
+        this.cameras.main.fadeOut(360, 5, 7, 18);
+        this.cameras.main.once("camerafadeoutcomplete", () => {
+          this.scene.start(SCENE_KEYS.WINNER, {
+            winnerId: winner.id,
+            mapId: this.selectedMap.id,
+            score: { ...this.roundWins },
+          });
         });
       });
       return;
@@ -733,27 +890,45 @@ export class GameScene extends Phaser.Scene {
   }
 
   private showRoundResult(winner: Player): void {
-    const panel = this.add.rectangle(GAME_WIDTH / 2, GAME_HEIGHT / 2, 500, 178, 0x030712, 0.88)
-      .setStrokeStyle(2, winner.color, 0.8)
+    const accent = winner.id === "P1" ? HEX.cyan : HEX.pink;
+    this.buildResultOverlay(
+      winner.color,
+      winner.id === "P1" ? "PLAYER 1 WINS ROUND" : "PLAYER 2 WINS ROUND",
+      accent,
+    );
+  }
+
+  private showDrawResult(): void {
+    this.buildResultOverlay(0xb6ff4d, "ROUND DRAW", HEX.lime);
+  }
+
+  private buildResultOverlay(strokeColor: number, titleText: string, titleColor: string): void {
+    const panel = this.add
+      .rectangle(GAME_WIDTH / 2, GAME_HEIGHT / 2, 520, 190, 0x030712, 0.9)
+      .setStrokeStyle(2, strokeColor, 0.85)
       .setDepth(45);
-    const title = this.add.text(GAME_WIDTH / 2, GAME_HEIGHT / 2 - 38, winner.id === "P1" ? "Player 1 Wins Round!" : "Player 2 Wins Round!", {
-      color: winner.id === "P1" ? "#28f0ff" : "#ff3df2",
-      fontFamily: "Arial, Helvetica, sans-serif",
-      fontSize: "34px",
-      fontStyle: "900",
-    }).setOrigin(0.5).setDepth(46);
-    const score = this.add.text(GAME_WIDTH / 2, GAME_HEIGHT / 2 + 8, `Match Score: P1 ${this.roundWins.P1} - ${this.roundWins.P2} P2`, {
-      color: "#f4f7ff",
-      fontFamily: "Arial, Helvetica, sans-serif",
-      fontSize: "18px",
-      fontStyle: "800",
-    }).setOrigin(0.5).setDepth(46);
-    const prompt = this.add.text(GAME_WIDTH / 2, GAME_HEIGHT / 2 + 52, "Press Enter for Next Round", {
-      color: "#b6ff4d",
-      fontFamily: "Arial, Helvetica, sans-serif",
-      fontSize: "20px",
-      fontStyle: "900",
-    }).setOrigin(0.5).setDepth(46);
+    const title = this.add
+      .text(GAME_WIDTH / 2, GAME_HEIGHT / 2 - 40, titleText, titleStyle(34, titleColor))
+      .setOrigin(0.5)
+      .setDepth(46);
+    const score = this.add
+      .text(
+        GAME_WIDTH / 2,
+        GAME_HEIGHT / 2 + 8,
+        `MATCH SCORE   P1  ${this.roundWins.P1} - ${this.roundWins.P2}  P2`,
+        bodyStyle(20, HEX.text, "700"),
+      )
+      .setOrigin(0.5)
+      .setDepth(46);
+    const prompt = this.add
+      .text(GAME_WIDTH / 2, GAME_HEIGHT / 2 + 54, "PRESS ENTER FOR NEXT ROUND", bodyStyle(20, HEX.lime, "700"))
+      .setOrigin(0.5)
+      .setDepth(46);
+
+    audio.roundWin();
+    this.tweens.add({ targets: prompt, alpha: 0.45, duration: 700, yoyo: true, repeat: -1, ease: "Sine.easeInOut" });
+    panel.setScale(0.85);
+    this.tweens.add({ targets: panel, scale: 1, duration: 320, ease: "Back.easeOut" });
 
     this.roundOverlayObjects = [panel, title, score, prompt];
 

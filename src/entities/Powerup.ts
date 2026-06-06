@@ -1,6 +1,19 @@
 import Phaser from "phaser";
 
-export type PowerupType = "health-core" | "shield-bubble";
+export type PowerupType = "health-core" | "shield-bubble" | "speed-surge" | "mega-shot";
+
+type PowerupStyle = {
+  color: number;
+  accent: number;
+  glyph: string;
+};
+
+const POWERUP_STYLES: Record<PowerupType, PowerupStyle> = {
+  "health-core": { color: 0xb6ff4d, accent: 0xb6ff4d, glyph: "+" },
+  "shield-bubble": { color: 0x28f0ff, accent: 0xffe66d, glyph: "S" },
+  "speed-surge": { color: 0xb6ff4d, accent: 0x7dff72, glyph: "»" },
+  "mega-shot": { color: 0xff6b2b, accent: 0xffe66d, glyph: "★" },
+};
 
 export class Powerup {
   readonly type: PowerupType;
@@ -10,18 +23,30 @@ export class Powerup {
   constructor(scene: Phaser.Scene, type: PowerupType, x: number, y: number) {
     this.type = type;
 
-    const color = type === "health-core" ? 0xb6ff4d : 0x28f0ff;
-    const accent = type === "health-core" ? 0xb6ff4d : 0xffe66d;
-    const ring = scene.add.circle(0, 0, 20, color, 0.18).setStrokeStyle(3, accent, 0.94);
-    const core = scene.add.circle(0, 0, 11, color, 0.36);
-    const label = scene.add.text(0, 0, type === "health-core" ? "+" : "S", {
-      color: "#f4f7ff",
-      fontFamily: "Arial, Helvetica, sans-serif",
-      fontSize: "18px",
-      fontStyle: "700",
-    }).setOrigin(0.5);
+    const style = POWERUP_STYLES[type];
+    const ring = scene.add.circle(0, 0, 20, style.color, 0.18).setStrokeStyle(3, style.accent, 0.94);
+    const core = scene.add.circle(0, 0, 11, style.color, 0.36);
+    const label = scene.add
+      .text(0, 0, style.glyph, {
+        color: "#f4f7ff",
+        fontFamily: '"Rajdhani", Arial, sans-serif',
+        fontSize: "20px",
+        fontStyle: "700",
+      })
+      .setOrigin(0.5);
 
-    this.sprite = scene.add.container(x, y, [ring, core, label]);
+    // Outer pulse ring to draw the eye to the pickup.
+    const pulse = scene.add.circle(0, 0, 20, style.accent, 0).setStrokeStyle(2, style.accent, 0.6);
+    scene.tweens.add({
+      targets: pulse,
+      scale: 1.8,
+      alpha: 0,
+      duration: 1100,
+      repeat: -1,
+      ease: "Cubic.easeOut",
+    });
+
+    this.sprite = scene.add.container(x, y, [pulse, ring, core, label]);
     this.sprite.setDepth(12);
 
     scene.tweens.add({
