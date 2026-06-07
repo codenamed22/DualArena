@@ -6,6 +6,11 @@
 
 Play here: https://duel-arena.vercel.app/
 
+
+## Demo Video
+
+Watch here: https://www.youtube.com/watch?v=qLCopEXsSKo
+
 ---
 
 
