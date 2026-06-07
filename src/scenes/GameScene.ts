@@ -2,6 +2,7 @@ import Phaser from "phaser";
 import { getArenaMap, type ArenaMap, type ArenaMapId } from "../config/maps";
 import { Bullet } from "../entities/Bullet";
 import { BulletPool } from "../entities/BulletPool";
+import { DynamicObstacle, type DynamicObstacleConfig } from "../entities/DynamicObstacle";
 import { Player } from "../entities/Player";
 import { Powerup, type PowerupType } from "../entities/Powerup";
 import { ARENA_BOUNDS, COLORS, GAME_HEIGHT, GAME_WIDTH, SCENE_KEYS } from "../utils/constants";
@@ -28,6 +29,8 @@ export class GameScene extends Phaser.Scene {
   private bulletPool!: BulletPool;
   private arenaBounds = new Phaser.Geom.Rectangle(ARENA_BOUNDS.x, ARENA_BOUNDS.y, ARENA_BOUNDS.width, ARENA_BOUNDS.height);
   private obstacles: Phaser.Geom.Rectangle[] = [];
+  private staticObstacles: Phaser.Geom.Rectangle[] = [];
+  private dynamicObstacles: DynamicObstacle[] = [];
   private hud!: Hud;
   private countdownText?: Phaser.GameObjects.Text;
   private roundEndsAt = 0;
@@ -73,7 +76,10 @@ export class GameScene extends Phaser.Scene {
     this.players = [];
     this.bullets = [];
     this.bulletPool = new BulletPool(this);
-    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => this.bulletPool.destroyAll());
+    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
+      this.bulletPool.destroyAll();
+      this.destroyDynamicObstacles();
+    });
     this.clearPowerups();
     this.lastShotAt = { P1: -Infinity, P2: -Infinity };
     this.lastEventDamageAt = { P1: -Infinity, P2: -Infinity };
@@ -103,6 +109,7 @@ export class GameScene extends Phaser.Scene {
     const deltaSeconds = delta / 1000;
 
     if (this.combatActive && this.roundPhase === "playing") {
+      this.updateDynamicObstacles(time);
       this.players.forEach((player) => player.update(deltaSeconds));
       this.updateShooting(time);
       this.updateBullets(deltaSeconds);
@@ -202,9 +209,10 @@ export class GameScene extends Phaser.Scene {
   }
 
   private drawObstacles(): void {
-    this.obstacles = this.getArenaObstacles();
+    this.staticObstacles = this.getArenaObstacles();
+    this.obstacles = [...this.staticObstacles];
 
-    this.obstacles.forEach((rect) => {
+    this.staticObstacles.forEach((rect) => {
       this.add
         .rectangle(rect.centerX, rect.centerY, rect.width, rect.height, 0x0e1630, 1)
         .setStrokeStyle(3, this.selectedMap.accentColor, 0.95)
@@ -214,6 +222,157 @@ export class GameScene extends Phaser.Scene {
         .setStrokeStyle(1, this.selectedMap.secondaryColor, 0.5)
         .setDepth(14);
     });
+
+    this.createDynamicObstacles();
+  }
+
+  private createDynamicObstacles(): void {
+    this.destroyDynamicObstacles();
+    this.dynamicObstacles = this.getDynamicObstacleConfigs().map((config) => new DynamicObstacle(this, config));
+    this.obstacles.push(...this.dynamicObstacles.map((obstacle) => obstacle.bounds));
+  }
+
+  private getDynamicObstacleConfigs(): DynamicObstacleConfig[] {
+    const cx = this.arenaBounds.centerX;
+    const cy = this.arenaBounds.centerY;
+
+    if (this.selectedMap.id === "forest") {
+      return [
+        {
+          x: cx - 170,
+          y: cy - 28,
+          width: 104,
+          height: 24,
+          axis: "y",
+          travel: 58,
+          cycleMs: 4600,
+          style: "root",
+          fillColor: 0x1d2714,
+          strokeColor: 0x7dff72,
+          accentColor: 0xffe66d,
+        },
+        {
+          x: cx + 170,
+          y: cy + 28,
+          width: 104,
+          height: 24,
+          axis: "y",
+          travel: 58,
+          cycleMs: 4600,
+          phase: Math.PI,
+          style: "root",
+          fillColor: 0x1d2714,
+          strokeColor: 0x7dff72,
+          accentColor: 0xffe66d,
+        },
+        {
+          x: cx,
+          y: cy,
+          width: 34,
+          height: 110,
+          axis: "x",
+          travel: 78,
+          cycleMs: 5600,
+          phase: Math.PI / 2,
+          style: "root",
+          fillColor: 0x23190f,
+          strokeColor: 0xffe66d,
+          accentColor: 0x7dff72,
+        },
+      ];
+    }
+
+    if (this.selectedMap.id === "volcano") {
+      return [
+        {
+          x: cx,
+          y: cy - 94,
+          width: 148,
+          height: 26,
+          axis: "x",
+          travel: 92,
+          cycleMs: 5000,
+          style: "lava",
+          fillColor: 0x21100d,
+          strokeColor: 0xff6b2b,
+          accentColor: 0xff2b2b,
+        },
+        {
+          x: cx,
+          y: cy + 94,
+          width: 148,
+          height: 26,
+          axis: "x",
+          travel: 92,
+          cycleMs: 5000,
+          phase: Math.PI,
+          style: "lava",
+          fillColor: 0x21100d,
+          strokeColor: 0xff6b2b,
+          accentColor: 0xffe66d,
+        },
+      ];
+    }
+
+    return [
+      {
+        x: cx,
+        y: cy - 108,
+        width: 96,
+        height: 24,
+        axis: "x",
+        travel: 150,
+        cycleMs: 4300,
+        style: "tech",
+        fillColor: 0x09162f,
+        strokeColor: 0x28f0ff,
+        accentColor: 0xff3df2,
+      },
+      {
+        x: cx,
+        y: cy + 108,
+        width: 96,
+        height: 24,
+        axis: "x",
+        travel: 150,
+        cycleMs: 4300,
+        phase: Math.PI,
+        style: "tech",
+        fillColor: 0x120b2d,
+        strokeColor: 0xff3df2,
+        accentColor: 0x28f0ff,
+      },
+      {
+        x: cx,
+        y: cy,
+        width: 24,
+        height: 84,
+        axis: "y",
+        travel: 68,
+        cycleMs: 5200,
+        phase: Math.PI / 2,
+        style: "tech",
+        fillColor: 0x09162f,
+        strokeColor: 0x28f0ff,
+        accentColor: 0xff3df2,
+      },
+    ];
+  }
+
+  private updateDynamicObstacles(time: number): void {
+    this.dynamicObstacles.forEach((obstacle) => {
+      obstacle.update(time);
+      this.players.forEach((player) => player.pushOutOfObstacle(obstacle.bounds));
+    });
+  }
+
+  private resetDynamicObstacles(): void {
+    this.dynamicObstacles.forEach((obstacle) => obstacle.reset(this.time.now));
+  }
+
+  private destroyDynamicObstacles(): void {
+    this.dynamicObstacles.forEach((obstacle) => obstacle.destroy());
+    this.dynamicObstacles = [];
   }
 
   private hitsObstacle(bullet: Bullet): boolean {
@@ -331,6 +490,7 @@ export class GameScene extends Phaser.Scene {
 
   private resetRound(): void {
     this.clearRoundObjects();
+    this.resetDynamicObstacles();
     this.players.forEach((player) => player.resetForRound());
     this.lastShotAt = { P1: -Infinity, P2: -Infinity };
     this.nextPowerupSpawnAt = Number.POSITIVE_INFINITY;
@@ -442,10 +602,52 @@ export class GameScene extends Phaser.Scene {
       }
 
       if (this.hitsObstacle(bullet)) {
-        this.spawnImpact(bullet.sprite.x, bullet.sprite.y, bullet.sprite.fillColor, 8, 28);
+        this.spawnObstacleImpact(bullet.sprite.x, bullet.sprite.y);
         this.bulletPool.release(bullet);
         this.bullets.splice(index, 1);
       }
+    }
+  }
+
+  private spawnObstacleImpact(x: number, y: number): void {
+    const colors =
+      this.selectedMap.id === "forest"
+        ? [0x7dff72, 0xb6ff4d, 0x8a5a2b]
+        : this.selectedMap.id === "volcano"
+          ? [0xff6b2b, 0xff2b2b, 0xffe66d]
+          : [0x28f0ff, 0xff3df2, 0x126fff];
+
+    const flash = this.add.circle(x, y, 5, colors[0], 0.42).setDepth(19).setBlendMode(Phaser.BlendModes.ADD);
+    this.tweens.add({
+      targets: flash,
+      scale: 2,
+      alpha: 0,
+      duration: 140,
+      ease: "Cubic.easeOut",
+      onComplete: () => flash.destroy(),
+    });
+
+    for (let index = 0; index < 5; index += 1) {
+      const color = Phaser.Utils.Array.GetRandom(colors);
+      const particle =
+        this.selectedMap.id === "forest"
+          ? this.add.ellipse(x, y, 4, 2, color, 0.48)
+          : this.add.circle(x, y, 2, color, 0.72);
+      const angle = Phaser.Math.FloatBetween(0, Math.PI * 2);
+      const distance = Phaser.Math.Between(8, 22);
+
+      particle.setDepth(19).setBlendMode(this.selectedMap.id === "forest" ? Phaser.BlendModes.NORMAL : Phaser.BlendModes.ADD);
+      particle.setRotation(angle);
+      this.tweens.add({
+        targets: particle,
+        x: x + Math.cos(angle) * distance,
+        y: y + Math.sin(angle) * distance,
+        alpha: 0,
+        scale: this.selectedMap.id === "forest" ? 0.6 : 0.2,
+        duration: this.selectedMap.id === "volcano" ? 260 : 190,
+        ease: "Cubic.easeOut",
+        onComplete: () => particle.destroy(),
+      });
     }
   }
 
@@ -785,12 +987,7 @@ export class GameScene extends Phaser.Scene {
 
   private getSafePowerupPosition(): Phaser.Math.Vector2 {
     const padding = 58;
-
-    for (let attempt = 0; attempt < 24; attempt += 1) {
-      const position = new Phaser.Math.Vector2(
-        Phaser.Math.Between(this.arenaBounds.left + padding, this.arenaBounds.right - padding),
-        Phaser.Math.Between(this.arenaBounds.top + padding, this.arenaBounds.bottom - padding),
-      );
+    const isSafePosition = (position: Phaser.Math.Vector2): boolean => {
       const safeFromPlayers = this.players.every((player) => Phaser.Math.Distance.Between(
         position.x,
         position.y,
@@ -802,12 +999,29 @@ export class GameScene extends Phaser.Scene {
         return !inflated.contains(position.x, position.y);
       });
 
-      if (safeFromPlayers && safeFromObstacles) {
+      return safeFromPlayers && safeFromObstacles;
+    };
+
+    for (let attempt = 0; attempt < 24; attempt += 1) {
+      const position = new Phaser.Math.Vector2(
+        Phaser.Math.Between(this.arenaBounds.left + padding, this.arenaBounds.right - padding),
+        Phaser.Math.Between(this.arenaBounds.top + padding, this.arenaBounds.bottom - padding),
+      );
+
+      if (isSafePosition(position)) {
         return position;
       }
     }
 
-    return new Phaser.Math.Vector2(this.arenaBounds.centerX, this.arenaBounds.centerY);
+    const fallbackPositions = [
+      new Phaser.Math.Vector2(this.arenaBounds.centerX, this.arenaBounds.centerY),
+      new Phaser.Math.Vector2(this.arenaBounds.left + 116, this.arenaBounds.top + 116),
+      new Phaser.Math.Vector2(this.arenaBounds.right - 116, this.arenaBounds.top + 116),
+      new Phaser.Math.Vector2(this.arenaBounds.left + 116, this.arenaBounds.bottom - 116),
+      new Phaser.Math.Vector2(this.arenaBounds.right - 116, this.arenaBounds.bottom - 116),
+    ];
+
+    return fallbackPositions.find(isSafePosition) ?? fallbackPositions[0];
   }
 
   private applyPowerup(player: Player, powerup: Powerup): void {

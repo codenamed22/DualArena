@@ -95,6 +95,44 @@ export class Player {
     this.obstacles = obstacles;
   }
 
+  pushOutOfObstacle(rect: Phaser.Geom.Rectangle): void {
+    if (!this.overlapsRect(this.container.x, this.container.y, rect)) {
+      return;
+    }
+
+    const closestX = Phaser.Math.Clamp(this.container.x, rect.left, rect.right);
+    const closestY = Phaser.Math.Clamp(this.container.y, rect.top, rect.bottom);
+    let dx = this.container.x - closestX;
+    let dy = this.container.y - closestY;
+    let distance = Math.sqrt(dx * dx + dy * dy);
+
+    if (distance === 0) {
+      const leftGap = Math.abs(this.container.x - rect.left);
+      const rightGap = Math.abs(rect.right - this.container.x);
+      const topGap = Math.abs(this.container.y - rect.top);
+      const bottomGap = Math.abs(rect.bottom - this.container.y);
+      const minGap = Math.min(leftGap, rightGap, topGap, bottomGap);
+
+      if (minGap === leftGap) {
+        dx = -1;
+      } else if (minGap === rightGap) {
+        dx = 1;
+      } else if (minGap === topGap) {
+        dy = -1;
+      } else {
+        dy = 1;
+      }
+
+      distance = 1;
+    }
+
+    const overlap = this.radius - distance + 1;
+    this.container.x += (dx / distance) * overlap;
+    this.container.y += (dy / distance) * overlap;
+    this.container.x = Phaser.Math.Clamp(this.container.x, this.bounds.left + 24, this.bounds.right - 24);
+    this.container.y = Phaser.Math.Clamp(this.container.y, this.bounds.top + 24, this.bounds.bottom - 24);
+  }
+
   update(deltaSeconds: number): void {
     const movement = this.getMovementVector();
 
