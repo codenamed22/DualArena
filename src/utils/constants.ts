@@ -2,10 +2,10 @@ export const GAME_WIDTH = 960;
 export const GAME_HEIGHT = 540;
 
 export const ARENA_BOUNDS = {
-  x: 64,
-  y: 78,
-  width: 832,
-  height: 384,
+  x: 28,
+  y: 96,
+  width: 904,
+  height: 422,
 } as const;
 
 export const SCENE_KEYS = {

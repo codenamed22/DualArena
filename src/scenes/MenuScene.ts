@@ -17,7 +17,7 @@ export class MenuScene extends Phaser.Scene {
     this.addControls();
 
     this.add
-      .text(GAME_WIDTH / 2, 494, "Press  F  for Fullscreen", bodyStyle(15, HEX.muted, "600"))
+      .text(GAME_WIDTH / 2, 460, "Press  F  for Fullscreen", bodyStyle(15, HEX.muted, "600"))
       .setOrigin(0.5);
 
     this.input.keyboard?.once("keydown-ENTER", () => {
@@ -32,7 +32,7 @@ export class MenuScene extends Phaser.Scene {
 
   private addTitle(): void {
     const title = this.add
-      .text(GAME_WIDTH / 2, 116, "DUELBYTE ARENA", titleStyle(64, HEX.text))
+      .text(GAME_WIDTH / 2, 86, "DUELBYTE ARENA", titleStyle(64, HEX.text))
       .setOrigin(0.5);
     applyNeonGlow(title, HEX.cyan, 22);
 
@@ -47,11 +47,11 @@ export class MenuScene extends Phaser.Scene {
     });
 
     this.add
-      .text(GAME_WIDTH / 2, 184, "Same keyboard. No mercy.", headingStyle(24, HEX.lime))
+      .text(GAME_WIDTH / 2, 152, "Same keyboard. No mercy.", headingStyle(24, HEX.lime))
       .setOrigin(0.5);
 
     const prompt = this.add
-      .text(GAME_WIDTH / 2, 268, "PRESS ENTER TO START", headingStyle(26, HEX.cyan))
+      .text(GAME_WIDTH / 2, 234, "PRESS ENTER TO START", headingStyle(26, HEX.cyan))
       .setOrigin(0.5);
     applyNeonGlow(prompt, HEX.cyan, 14);
 
@@ -81,15 +81,15 @@ export class MenuScene extends Phaser.Scene {
     colorNum: number,
   ): void {
     this.add
-      .rectangle(x, 392, 312, 140, 0x060a18, 0.78)
+      .rectangle(x, 360, 312, 140, 0x060a18, 0.78)
       .setStrokeStyle(2, colorNum, 0.6);
 
-    const heading = this.add.text(x, 346, title, headingStyle(22, color)).setOrigin(0.5);
+    const heading = this.add.text(x, 314, title, headingStyle(22, color)).setOrigin(0.5);
     applyNeonGlow(heading, color, 10);
 
-    this.add.text(x - 120, 384, moveLabel, bodyStyle(14, HEX.muted, "700")).setOrigin(0, 0.5);
-    this.add.text(x + 130, 384, move, bodyStyle(18, HEX.text, "700")).setOrigin(1, 0.5);
-    this.add.text(x - 120, 418, attackLabel, bodyStyle(14, HEX.muted, "700")).setOrigin(0, 0.5);
-    this.add.text(x + 130, 418, attack, bodyStyle(18, HEX.text, "700")).setOrigin(1, 0.5);
+    this.add.text(x - 120, 352, moveLabel, bodyStyle(14, HEX.muted, "700")).setOrigin(0, 0.5);
+    this.add.text(x + 130, 352, move, bodyStyle(18, HEX.text, "700")).setOrigin(1, 0.5);
+    this.add.text(x - 120, 386, attackLabel, bodyStyle(14, HEX.muted, "700")).setOrigin(0, 0.5);
+    this.add.text(x + 130, 386, attack, bodyStyle(18, HEX.text, "700")).setOrigin(1, 0.5);
   }
 }

@@ -35,7 +35,7 @@ export class Player {
   readonly maxHealth = 100;
 
   private readonly body: Phaser.GameObjects.Arc;
-  private readonly facingIndicator: Phaser.GameObjects.Triangle;
+  private readonly face: Phaser.GameObjects.Container;
   private readonly label: Phaser.GameObjects.Text;
   private readonly shieldAura: Phaser.GameObjects.Arc;
   private readonly controls: PlayerControls;
@@ -64,17 +64,26 @@ export class Player {
     this.spawnFacing = new Phaser.Math.Vector2(config.id === "P1" ? 1 : -1, 0);
     this.facing = this.spawnFacing.clone();
 
-    const shadow = scene.add.ellipse(0, 30, 42, 12, 0x000000, 0.28);
+    const shadow = scene.add.ellipse(0, 30, 44, 13, 0x000000, 0.3);
     this.body = scene.add.circle(0, 0, 22, config.color, 0.95).setStrokeStyle(3, config.accentColor, 1);
     const highlight = scene.add.circle(-7, -8, 9, 0xffffff, 0.18);
 
-    this.facingIndicator = scene.add.triangle(31, 0, 0, -9, 18, 0, 0, 9, config.accentColor, 1);
+    // Directional "face": a blaster snout + a dark visor with two glowing eyes,
+    // grouped so it rotates to look where the player is heading.
+    const cannon = scene.add.triangle(22, 0, 0, -7, 14, 0, 0, 7, config.accentColor, 1);
+    const visor = scene.add.ellipse(9, 0, 17, 22, 0x05070f, 0.55);
+    const eyeTop = scene.add.circle(9, -7, 4.4, 0xffffff, 1);
+    const eyeBottom = scene.add.circle(9, 7, 4.4, 0xffffff, 1);
+    const pupilTop = scene.add.circle(11, -7, 2.2, config.accentColor, 1);
+    const pupilBottom = scene.add.circle(11, 7, 2.2, config.accentColor, 1);
+    this.face = scene.add.container(0, 0, [cannon, visor, eyeTop, eyeBottom, pupilTop, pupilBottom]);
+
     this.shieldAura = scene.add.circle(0, 0, 34, 0x28f0ff, 0.08).setStrokeStyle(3, 0xffe66d, 0.86);
     this.shieldAura.setVisible(false);
-    this.label = scene.add.text(0, -44, config.id, {
+    this.label = scene.add.text(0, -46, config.id, {
       color: config.labelColor,
-      fontFamily: "Arial, Helvetica, sans-serif",
-      fontSize: "16px",
+      fontFamily: '"Orbitron", Arial, sans-serif',
+      fontSize: "15px",
       fontStyle: "900",
     }).setOrigin(0.5);
 
@@ -82,13 +91,13 @@ export class Player {
       shadow,
       this.body,
       highlight,
-      this.facingIndicator,
+      this.face,
       this.shieldAura,
       this.label,
     ]);
 
     this.container.setDepth(20);
-    this.facingIndicator.rotation = this.facing.angle();
+    this.face.rotation = this.facing.angle();
   }
 
   setObstacles(obstacles: Phaser.Geom.Rectangle[]): void {
@@ -147,7 +156,7 @@ export class Player {
       // Move and resolve collisions per-axis so players slide along cover.
       this.moveAxis("x", movement.x * step);
       this.moveAxis("y", movement.y * step);
-      this.facingIndicator.rotation = this.facing.angle();
+      this.face.rotation = this.facing.angle();
     }
 
     this.container.x = Phaser.Math.Clamp(this.container.x, this.bounds.left + 24, this.bounds.right - 24);
@@ -250,7 +259,7 @@ export class Player {
   resetForRound(): void {
     this.container.setPosition(this.spawnPosition.x, this.spawnPosition.y);
     this.facing = this.spawnFacing.clone();
-    this.facingIndicator.rotation = this.facing.angle();
+    this.face.rotation = this.facing.angle();
     this.health = this.maxHealth;
     this.shieldUntil = 0;
     this.slowUntil = 0;

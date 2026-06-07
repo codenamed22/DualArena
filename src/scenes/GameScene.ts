@@ -5,6 +5,7 @@ import { BulletPool } from "../entities/BulletPool";
 import { DynamicObstacle, type DynamicObstacleConfig } from "../entities/DynamicObstacle";
 import { Player } from "../entities/Player";
 import { Powerup, type PowerupType } from "../entities/Powerup";
+import { ArenaBackground } from "./ArenaBackground";
 import { ARENA_BOUNDS, COLORS, GAME_HEIGHT, GAME_WIDTH, SCENE_KEYS } from "../utils/constants";
 import { addSceneBloom, bodyStyle, HEX, titleStyle } from "../utils/theme";
 import { audio } from "../utils/audio";
@@ -59,7 +60,8 @@ export class GameScene extends Phaser.Scene {
   private readonly shieldDuration = 5000;
   private readonly speedDuration = 5000;
   private readonly megaDuration = 6000;
-  private readonly powerupRespawnDelay = 1700;
+  private readonly powerupFirstSpawn = { min: 800, max: 1600 };
+  private readonly powerupRespawn = { min: 1500, max: 3000 };
   private readonly arenaEventWarningDuration = 1000;
   private readonly arenaEventActiveDuration = 2200;
   private readonly arenaEventDamageCooldown = 650;
@@ -131,47 +133,22 @@ export class GameScene extends Phaser.Scene {
   }
 
   private drawArena(): void {
+    const cx = this.arenaBounds.centerX;
+    const cy = this.arenaBounds.centerY;
+
     this.add.rectangle(GAME_WIDTH / 2, GAME_HEIGHT / 2, GAME_WIDTH, GAME_HEIGHT, COLORS.background);
-    this.add.rectangle(GAME_WIDTH / 2, GAME_HEIGHT / 2, ARENA_BOUNDS.width, ARENA_BOUNDS.height, this.selectedMap.floorColor, 0.94).setStrokeStyle(4, this.selectedMap.accentColor, 0.88);
-    this.add.rectangle(GAME_WIDTH / 2, GAME_HEIGHT / 2, ARENA_BOUNDS.width - 42, ARENA_BOUNDS.height - 42).setStrokeStyle(2, this.selectedMap.secondaryColor, 0.55);
+    this.add
+      .rectangle(cx, cy, ARENA_BOUNDS.width, ARENA_BOUNDS.height, this.selectedMap.floorColor, 0.94)
+      .setStrokeStyle(4, this.selectedMap.accentColor, 0.88)
+      .setDepth(0);
 
-    const grid = this.add.graphics();
-    grid.lineStyle(1, this.selectedMap.gridColor, 0.16);
+    // Rich, animated per-map world (grid/circuits, foliage, or lava).
+    new ArenaBackground(this, this.selectedMap, this.arenaBounds);
 
-    for (let x = ARENA_BOUNDS.x + 24; x <= ARENA_BOUNDS.x + ARENA_BOUNDS.width - 24; x += 48) {
-      grid.moveTo(x, ARENA_BOUNDS.y);
-      grid.lineTo(x, ARENA_BOUNDS.y + ARENA_BOUNDS.height);
-    }
-
-    for (let y = ARENA_BOUNDS.y; y <= ARENA_BOUNDS.y + ARENA_BOUNDS.height; y += 48) {
-      grid.moveTo(ARENA_BOUNDS.x, y);
-      grid.lineTo(ARENA_BOUNDS.x + ARENA_BOUNDS.width, y);
-    }
-
-    grid.strokePath();
-    this.drawThemeAccents();
-  }
-
-  private drawThemeAccents(): void {
-    const accents = this.add.graphics();
-    accents.lineStyle(4, this.selectedMap.secondaryColor, 0.78);
-
-    if (this.selectedMap.id === "volcano") {
-      accents.lineBetween(230, 145, 306, 236);
-      accents.lineBetween(306, 236, 276, 322);
-      accents.lineBetween(672, 128, 604, 228);
-      accents.lineBetween(604, 228, 682, 348);
-    } else if (this.selectedMap.id === "forest") {
-      accents.strokeCircle(196, 160, 28);
-      accents.strokeCircle(744, 170, 24);
-      accents.strokeCircle(266, 382, 22);
-      accents.strokeCircle(710, 366, 30);
-    } else {
-      accents.strokeRect(128, 104, 88, 28);
-      accents.strokeRect(744, 408, 88, 28);
-      accents.lineBetween(290, 104, 366, 144);
-      accents.lineBetween(594, 396, 670, 436);
-    }
+    this.add
+      .rectangle(cx, cy, ARENA_BOUNDS.width - 42, ARENA_BOUNDS.height - 42)
+      .setStrokeStyle(2, this.selectedMap.secondaryColor, 0.55)
+      .setDepth(9);
   }
 
   /** Symmetric cover blocks per map — block bullets and movement, keep both sides fair. */
@@ -419,7 +396,7 @@ export class GameScene extends Phaser.Scene {
     this.players.push(playerOne, playerTwo);
 
     this.add
-      .text(GAME_WIDTH / 2, 494, "P1: WASD + Space      P2: Arrow Keys + Enter / Shift", bodyStyle(15, HEX.muted, "600"))
+      .text(GAME_WIDTH / 2, GAME_HEIGHT - 14, "P1: WASD + Space      P2: Arrow Keys + Enter / Shift", bodyStyle(15, HEX.muted, "600"))
       .setOrigin(0.5);
   }
 
@@ -481,7 +458,7 @@ export class GameScene extends Phaser.Scene {
   private startRound(): void {
     this.roundPhase = "playing";
     this.combatActive = true;
-    this.nextPowerupSpawnAt = this.time.now + 1000;
+    this.nextPowerupSpawnAt = this.time.now + Phaser.Math.Between(this.powerupFirstSpawn.min, this.powerupFirstSpawn.max);
     this.scheduleArenaEvent(this.time.now);
     this.lastShotAt = { P1: -Infinity, P2: -Infinity };
     this.roundEndsAt = this.time.now + this.roundDurationMs;
@@ -778,7 +755,7 @@ export class GameScene extends Phaser.Scene {
         this.applyPowerup(player, this.activePowerup);
         this.activePowerup.destroy();
         this.activePowerup = undefined;
-        this.nextPowerupSpawnAt = time + this.powerupRespawnDelay;
+        this.nextPowerupSpawnAt = time + Phaser.Math.Between(this.powerupRespawn.min, this.powerupRespawn.max);
         return;
       }
     }
@@ -859,28 +836,55 @@ export class GameScene extends Phaser.Scene {
     });
   }
 
+  /**
+   * Randomized hazard zones that are mirrored about the arena centre, so the
+   * layout differs every event but is always symmetric — no player is ever
+   * exposed to more danger than the other.
+   */
   private getArenaEventBounds(): Phaser.Geom.Rectangle[] {
+    const b = this.arenaBounds;
+    const cx = b.centerX;
+    const cy = b.centerY;
+    const zones: Phaser.Geom.Rectangle[] = [];
+    const centered = (x: number, y: number, w: number, h: number): Phaser.Geom.Rectangle =>
+      new Phaser.Geom.Rectangle(x - w / 2, y - h / 2, w, h);
+    // Point-mirror a zone to the opposite side of the arena for fairness.
+    const addMirrored = (x: number, y: number, w: number, h: number): void => {
+      zones.push(centered(x, y, w, h));
+      zones.push(centered(2 * cx - x, 2 * cy - y, w, h));
+    };
+
     if (this.selectedMap.id === "cyber-core") {
-      return [
-        new Phaser.Geom.Rectangle(this.arenaBounds.left + 110, this.arenaBounds.top, 18, this.arenaBounds.height),
-        new Phaser.Geom.Rectangle(this.arenaBounds.centerX - 9, this.arenaBounds.top, 18, this.arenaBounds.height),
-        new Phaser.Geom.Rectangle(this.arenaBounds.right - 128, this.arenaBounds.top, 18, this.arenaBounds.height),
-      ];
+      // Glitch lasers: full-height vertical bars at mirrored random offsets.
+      const pairs = Phaser.Math.Between(1, 2);
+      for (let i = 0; i < pairs; i += 1) {
+        const offset = Phaser.Math.Between(90, b.width / 2 - 70);
+        zones.push(centered(cx - offset, cy, 18, b.height - 12));
+        zones.push(centered(cx + offset, cy, 18, b.height - 12));
+      }
+      if (Phaser.Math.Between(0, 1) === 0) {
+        zones.push(centered(cx, cy, 18, b.height - 12));
+      }
+      return zones;
     }
 
     if (this.selectedMap.id === "forest") {
-      return [
-        new Phaser.Geom.Rectangle(this.arenaBounds.left + 96, this.arenaBounds.top + 72, 150, 54),
-        new Phaser.Geom.Rectangle(this.arenaBounds.centerX - 72, this.arenaBounds.centerY + 38, 144, 56),
-        new Phaser.Geom.Rectangle(this.arenaBounds.right - 246, this.arenaBounds.top + 224, 154, 54),
-      ];
+      const pairs = Phaser.Math.Between(1, 2);
+      for (let i = 0; i < pairs; i += 1) {
+        const x = Phaser.Math.Between(b.left + 90, cx - 30);
+        const y = Phaser.Math.Between(b.top + 70, b.bottom - 70);
+        addMirrored(x, y, Phaser.Math.Between(120, 160), Phaser.Math.Between(48, 60));
+      }
+      return zones;
     }
 
-    return [
-      new Phaser.Geom.Rectangle(this.arenaBounds.left + 132, this.arenaBounds.top + 88, 178, 26),
-      new Phaser.Geom.Rectangle(this.arenaBounds.centerX - 96, this.arenaBounds.centerY + 72, 192, 28),
-      new Phaser.Geom.Rectangle(this.arenaBounds.right - 286, this.arenaBounds.top + 248, 174, 26),
-    ];
+    const pairs = Phaser.Math.Between(1, 2);
+    for (let i = 0; i < pairs; i += 1) {
+      const x = Phaser.Math.Between(b.left + 100, cx - 30);
+      const y = Phaser.Math.Between(b.top + 80, b.bottom - 80);
+      addMirrored(x, y, Phaser.Math.Between(150, 190), Phaser.Math.Between(24, 30));
+    }
+    return zones;
   }
 
   private applyArenaEventEffects(time: number): void {
@@ -980,35 +984,85 @@ export class GameScene extends Phaser.Scene {
   private spawnPowerup(): void {
     const types: PowerupType[] = ["health-core", "shield-bubble", "speed-surge", "mega-shot"];
     const type = Phaser.Utils.Array.GetRandom(types);
-    const position = this.getSafePowerupPosition();
+    const position = this.getFairPowerupPosition();
 
     this.activePowerup = new Powerup(this, type, position.x, position.y);
   }
 
-  private getSafePowerupPosition(): Phaser.Math.Vector2 {
+  private isSafePowerupSpot(position: Phaser.Math.Vector2): boolean {
     const padding = 58;
-    const isSafePosition = (position: Phaser.Math.Vector2): boolean => {
-      const safeFromPlayers = this.players.every((player) => Phaser.Math.Distance.Between(
-        position.x,
-        position.y,
-        player.position.x,
-        player.position.y,
-      ) > 120);
-      const safeFromObstacles = this.obstacles.every((rect) => {
-        const inflated = new Phaser.Geom.Rectangle(rect.x - 40, rect.y - 40, rect.width + 80, rect.height + 80);
-        return !inflated.contains(position.x, position.y);
-      });
+    const b = this.arenaBounds;
 
-      return safeFromPlayers && safeFromObstacles;
-    };
+    if (
+      position.x < b.left + padding ||
+      position.x > b.right - padding ||
+      position.y < b.top + padding ||
+      position.y > b.bottom - padding
+    ) {
+      return false;
+    }
 
-    for (let attempt = 0; attempt < 24; attempt += 1) {
-      const position = new Phaser.Math.Vector2(
-        Phaser.Math.Between(this.arenaBounds.left + padding, this.arenaBounds.right - padding),
-        Phaser.Math.Between(this.arenaBounds.top + padding, this.arenaBounds.bottom - padding),
+    const safeFromPlayers = this.players.every((player) => Phaser.Math.Distance.Between(
+      position.x,
+      position.y,
+      player.position.x,
+      player.position.y,
+    ) > 120);
+    const safeFromObstacles = this.obstacles.every((rect) => {
+      const inflated = new Phaser.Geom.Rectangle(rect.x - 40, rect.y - 40, rect.width + 80, rect.height + 80);
+      return !inflated.contains(position.x, position.y);
+    });
+
+    return safeFromPlayers && safeFromObstacles;
+  }
+
+  /**
+   * Spawn on the perpendicular bisector between the two players: every such
+   * point is exactly equidistant from both, so a pickup is always a fair race.
+   * Falls back to a random safe spot only if no fair spot is reachable.
+   */
+  private getFairPowerupPosition(): Phaser.Math.Vector2 {
+    const [playerOne, playerTwo] = this.players;
+
+    if (playerOne && playerTwo) {
+      const mid = new Phaser.Math.Vector2(
+        (playerOne.position.x + playerTwo.position.x) / 2,
+        (playerOne.position.y + playerTwo.position.y) / 2,
+      );
+      const between = new Phaser.Math.Vector2(
+        playerTwo.position.x - playerOne.position.x,
+        playerTwo.position.y - playerOne.position.y,
       );
 
-      if (isSafePosition(position)) {
+      if (between.lengthSq() > 1) {
+        const perp = new Phaser.Math.Vector2(-between.y, between.x).normalize();
+
+        for (let attempt = 0; attempt < 22; attempt += 1) {
+          const reach = Phaser.Math.Between(40, 240) * (Phaser.Math.Between(0, 1) === 0 ? -1 : 1);
+          const candidate = new Phaser.Math.Vector2(mid.x + perp.x * reach, mid.y + perp.y * reach);
+
+          if (this.isSafePowerupSpot(candidate)) {
+            return candidate;
+          }
+        }
+
+        if (this.isSafePowerupSpot(mid)) {
+          return mid;
+        }
+      }
+    }
+
+    return this.getSafePowerupPosition();
+  }
+
+  private getSafePowerupPosition(): Phaser.Math.Vector2 {
+    for (let attempt = 0; attempt < 24; attempt += 1) {
+      const position = new Phaser.Math.Vector2(
+        Phaser.Math.Between(this.arenaBounds.left + 58, this.arenaBounds.right - 58),
+        Phaser.Math.Between(this.arenaBounds.top + 58, this.arenaBounds.bottom - 58),
+      );
+
+      if (this.isSafePowerupSpot(position)) {
         return position;
       }
     }
@@ -1021,7 +1075,7 @@ export class GameScene extends Phaser.Scene {
       new Phaser.Math.Vector2(this.arenaBounds.right - 116, this.arenaBounds.bottom - 116),
     ];
 
-    return fallbackPositions.find(isSafePosition) ?? fallbackPositions[0];
+    return fallbackPositions.find((position) => this.isSafePowerupSpot(position)) ?? fallbackPositions[0];
   }
 
   private applyPowerup(player: Player, powerup: Powerup): void {
