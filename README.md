@@ -1,151 +1,253 @@
 # DuelByte Arena
 
-## Track
+**Same keyboard. No mercy.**
 
-Multiplayer & Social Games
+Track: **Multiplayer & Social Games**
 
-## Problem Statement
+DuelByte Arena is a fast local arena battle game built for a game-themed hackathon. Two competitors fight on the same screen, share one keyboard/device, dodge map hazards, use powerups, and race to win a best-of-3 match.
 
-Build a fast 2-player local arena game where two players compete on the same keyboard or same device.
+The project focuses on a complete playable demo over unnecessary complexity: responsive movement, clear projectile combat, readable health/score tracking, powerups, round flow, and a champion screen.
 
-Each player controls a character in a small arena. Players can move, attack, collect powerups, and try to win the round.
+## Problem Statement Summary
 
-The goal is to create a quick, fun, and complete local multiplayer game that can be played live during the demo.
+The original challenge was to build a quick, fun, complete local multiplayer arena game where two players compete on the same keyboard or same device. Required elements included two playable characters, same-screen local multiplayer, one arena, one attack mechanic, at least two powerups, health or score tracking, round start/end, a winner screen, and basic controls.
 
-## Theme
+DuelByte Arena satisfies those requirements with a polished Phaser-based implementation and adds optional stretch features such as multiple arenas, Solo vs Bot, extra arena bots, dynamic obstacles, hazards, particles, screen shake, procedural audio, and fullscreen support.
 
-Same keyboard. No mercy.
+## What We Built
 
-## Core Requirements
+A neon arcade-style local battle game with:
 
-Your project must include:
+- Two main competitors: Player 1 and Player 2.
+- Local Duel mode for two humans on one keyboard.
+- Solo vs Bot mode where Player 2 is AI-controlled.
+- Three themed arenas with different visual identities and arena events.
+- Projectile combat, health bars, score pips, countdowns, round results, and final champion flow.
+- Powerups and moving obstacles that make each round more dynamic.
+- Optional neutral arena bots for extra chaos.
 
-1. Two playable characters.
-2. Same-screen local multiplayer.
-3. One arena map.
-4. One attack or interaction mechanic, such as:
-   - Shoot projectile
-   - Dash attack
-   - Drop bomb
-   - Push opponent
-   - Capture zone
-5. At least **2 powerups**, such as:
-   - Speed boost
-   - Shield
-   - Health pickup
-   - Bigger attack
-   - Freeze opponent
-   - Teleport
-6. A round system:
-   - Start round
-   - Health or score tracking
-   - Round end
-   - Winner screen
-7. Basic instructions and controls.
+## Requirement Coverage
 
-## Minimum Viable Product
+| Original Requirement | Status |
+| --- | --- |
+| Working demo | Implemented as a playable browser game |
+| GitHub/zip-ready project | Vite project with source, package files, and docs |
+| Setup instructions | Included below |
+| 3-5 minute demo support | See `docs/demo-script.md` |
+| AI tool usage explanation | Included below and in `docs/ai-usage.md` |
+| Completeness over complexity | One focused arena combat loop with complete match flow |
+| Two playable characters | Player 1 and Player 2 |
+| Same-screen local multiplayer | Local Duel mode |
+| Attack mechanic | Projectile shooting |
+| At least two powerups | Health, Shield, Speed, Mega Shot |
+| Health/score tracking | HUD health bars and best-of-3 score pips |
+| Round system | Countdown, round result, next round, final match winner |
+| Winner screen | Champion screen after best-of-3 |
+| Basic controls/instructions | Shown in menu/select screens and listed below |
 
-A successful MVP should have:
+## Game Modes
 
-- Two players on one screen.
-- One arena.
-- One attack mechanic.
-- Health or score.
-- Two powerups.
-- Winner screen.
+### Local Duel
 
-Simple shapes, placeholder characters, and basic effects are acceptable.
+Two players share one keyboard:
 
-## Suggested Controls
+- Player 1 uses WASD + Space.
+- Player 2 uses Arrow Keys + Enter/Shift.
 
-Player 1:
+This is the core hackathon mode and best represents the theme: **Same keyboard. No mercy.**
 
-- Move: W A S D
-- Attack: Space
+### Solo vs Bot
 
-Player 2:
+Player 1 fights an AI-controlled Player 2. The AI rival can move, shoot, win rounds, and win the match. This mode keeps the game playable even when only one person is available for a demo.
 
-- Move: Arrow Keys
-- Attack: Enter or Shift
+### Extra Arena Bots
 
-## Suggested Game Modes
+After choosing a map, players can add 0-3 neutral arena bots. These bots move, shoot, and can be destroyed, but they do not win rounds. They act as optional pressure and chaos.
 
-Choose one main mode:
+## Arena Maps
 
-### Option 1: Last Player Standing
+- **Cyber Core Arena**: neon grid, cyan/purple tech style, Glitch Lasers event.
+- **Forest Arena**: dark moss-lit forest/ruins style, Root Surge event.
+- **Volcano Rift**: molten rock/lava style, Lava Surge event.
 
-Players lose health when hit. Last player alive wins.
+Each map has themed visuals, moving obstacles, and a map-specific arena event.
 
-### Option 2: Coin Rush
+## Powerups
 
-Players collect coins while attacking each other. Highest score after the timer ends wins.
+- **Health Core**: restores health.
+- **Shield Bubble**: reduces incoming damage for a short duration.
+- **Speed Surge**: temporarily increases movement speed.
+- **Mega Shot**: temporarily upgrades projectile damage.
 
-### Option 3: King of the Zone
+Only one pickup appears at a time, and powerups respawn after a short delay.
 
-Players gain points while standing inside a capture zone.
+## Dynamic Obstacles and Hazards
 
-### Option 4: Knockout Arena
+Each arena includes moving obstacles that block players and destroy bullets. They are styled to match the selected map and reset between rounds.
 
-Players try to push each other out of the arena.
+Map-specific arena events trigger during active gameplay with a warning phase first:
 
-## Suggested Tech Stack
+- **Glitch Lasers**: cyber laser lanes deal light damage.
+- **Root Surge**: forest root zones slow players.
+- **Lava Surge**: volcano cracks deal light damage.
 
-You may use any stack, including:
+## Controls
 
-- Pygame
-- Godot
-- Unity
-- Phaser
-- HTML Canvas
-- JavaScript
-- Python
+### Navigation
 
-## Stretch Goals
+| Screen | Control |
+| --- | --- |
+| Menu | Enter to continue |
+| Mode Select | 1 Local Duel, 2 Solo vs Bot |
+| Map Select | 1 Cyber Core, 2 Forest Arena, 3 Volcano Rift |
+| Bot Select | 0-3 extra arena bots |
+| Select Screens | Esc or Backspace to go back |
+| Any Screen | F to toggle fullscreen |
 
-- Best-of-three rounds
-- More maps
-- More weapons
-- More powerups
-- 4-player local mode
-- Bots
-- Character selection
-- Sound effects
-- Screen shake
-- Particle effects
-- Online multiplayer
+### Gameplay
+
+| Player / Action | Control |
+| --- | --- |
+| Player 1 Move | W A S D |
+| Player 1 Shoot | Space |
+| Player 2 Move, Local Duel | Arrow Keys |
+| Player 2 Shoot, Local Duel | Enter or Shift |
+| Player 2, Solo vs Bot | AI controlled |
+| Restart Match | R |
+| Next Round | Enter on round result screen |
+| Rematch | R on champion screen |
+| Return to Map Select | Enter on champion screen |
+
+Note: Enter is used for Player 2 shooting during active Local Duel gameplay and for navigation on menu/result screens.
+
+## Tech Stack
+
+- **Vite**: development server and build tooling.
+- **TypeScript**: typed game logic and safer iteration.
+- **Phaser.js**: 2D scene, input, rendering, particles, tweens, and game loop.
+- **CSS**: page shell, canvas centering, and neon browser presentation.
+
+No React, Next.js, backend service, Python runtime, or Three.js is used.
+
+## Project Structure
+
+```text
+.
+├── index.html
+├── package.json
+├── tsconfig.json
+├── src
+│   ├── main.ts
+│   ├── styles.css
+│   ├── config
+│   │   ├── gameConfig.ts
+│   │   └── maps.ts
+│   ├── entities
+│   │   ├── Bot.ts
+│   │   ├── Bullet.ts
+│   │   ├── BulletPool.ts
+│   │   ├── DynamicObstacle.ts
+│   │   ├── Player.ts
+│   │   └── Powerup.ts
+│   ├── scenes
+│   │   ├── BootScene.ts
+│   │   ├── MenuScene.ts
+│   │   ├── ModeSelectScene.ts
+│   │   ├── MapSelectScene.ts
+│   │   ├── BotSelectScene.ts
+│   │   ├── GameScene.ts
+│   │   ├── ArenaBackground.ts
+│   │   └── WinnerScene.ts
+│   ├── ui
+│   │   └── Hud.ts
+│   └── utils
+│       ├── audio.ts
+│       ├── background.ts
+│       ├── constants.ts
+│       └── theme.ts
+└── docs
+```
+
+## Setup and Run Locally
+
+Install dependencies:
+
+```bash
+npm install
+```
+
+Start the development server:
+
+```bash
+npm run dev
+```
+
+Build for submission:
+
+```bash
+npm run build
+```
+
+Preview the production build:
+
+```bash
+npm run preview
+```
+
+The game is best played in a desktop/laptop browser with a keyboard.
+
+## Suggested Demo Flow
+
+1. Open the menu and introduce the theme.
+2. Choose **Local Duel**.
+3. Pick **Cyber Core Arena**.
+4. Select **0 extra bots** for the cleanest first round.
+5. Show both players moving, shooting, taking damage, and collecting a powerup.
+6. Let an arena hazard or moving obstacle appear.
+7. Show a round result.
+8. Restart or return to map/mode selection.
+9. Choose **Solo vs Bot** with 1 extra arena bot to show AI and chaos.
+10. End on the champion screen.
+
+See `docs/demo-script.md` for a full 3-5 minute script and fallback short version.
 
 ## AI Tool Usage
 
-You may use AI tools for:
+AI tools were used as assistants during planning, implementation support, debugging, balancing discussions, visual polish ideas, and documentation drafting. The team reviewed, tested, and customized the final code and design choices.
 
-- Game loop implementation
-- Collision detection
-- Powerup ideas
-- Balancing
-- Debugging
-- Visual polish
-- Writing documentation
+AI was not treated as a replacement for team ownership. The final game direction, feature scope, and submission materials remain team decisions.
 
-You must mention in your final README how AI tools were used.
+More detail is available in `docs/ai-usage.md`.
 
-## Demo Expectations
+## Team Contributions
 
-Your final demo should show:
+Use this section before submission to add real teammate names and responsibilities.
 
-1. Two players starting the game.
-2. Both players moving.
-3. Attack mechanic.
-4. Powerups.
-5. Score or health changes.
-6. Winner screen.
+| Team Member | Contributions |
+| --- | --- |
+| Name 1 | Gameplay / engineering / design |
+| Name 2 | UI / polish / testing |
+| Name 3 | Documentation / demo / balancing |
 
-## Judging Focus
+## Known Limitations
 
-You will be judged on:
+- Local same-screen play only; no online multiplayer.
+- Keyboard-focused; no mobile/touch control support.
+- AI uses lightweight steering and shooting logic, not advanced pathfinding.
+- Visuals and audio are generated/stylized in code rather than built from a custom asset pack.
+- Best experienced on a laptop or desktop browser.
+- No dedicated pause or mute UI is currently documented in the game flow.
 
-- Fun factor
-- Completeness
-- Multiplayer interaction
-- Controls and responsiveness
-- Polish
-- Demo quality
+## Future Improvements
+
+- Add more arenas or arena variants.
+- Add character selection.
+- Add difficulty settings for Solo vs Bot.
+- Add richer sound/music controls.
+- Add local controller support.
+- Add post-match stats.
+- Add online multiplayer as a larger future milestone.
+
+## License and Assets Note
+
+This hackathon project uses generated/stylized in-game visuals and procedural audio effects. No external art asset pack is required for the current build. Add a formal license before public release beyond the hackathon submission.
