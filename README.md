@@ -2,6 +2,14 @@
 
 **Same keyboard. No mercy.**
 
+## Live Demo
+
+Play here: https://duel-arena.vercel.app/
+
+---
+
+
+
 Track: **Multiplayer & Social Games**
 
 DuelByte Arena is a fast local arena battle game built for a game-themed hackathon. Two competitors fight on the same screen, share one keyboard/device, dodge map hazards, use powerups, and race to win a best-of-3 match.
@@ -225,9 +233,9 @@ Use this section before submission to add real teammate names and responsibiliti
 
 | Team Member | Contributions |
 | --- | --- |
-| Name 1 | Gameplay / engineering / design |
-| Name 2 | UI / polish / testing |
-| Name 3 | Documentation / demo / balancing |
+| Vansh | Gameplay / engineering / design |
+| Nitish | UI / polish / testing |
+| Vansh & Nitish | Documentation / demo / balancing |
 
 ## Known Limitations
 
@@ -250,4 +258,4 @@ Use this section before submission to add real teammate names and responsibiliti
 
 ## License and Assets Note
 
-This hackathon project uses generated/stylized in-game visuals and procedural audio effects. No external art asset pack is required for the current build. Add a formal license before public release beyond the hackathon submission.
+This hackathon project uses generated/stylized in-game visuals and procedural audio effects. No external art asset pack is required for the current build.
