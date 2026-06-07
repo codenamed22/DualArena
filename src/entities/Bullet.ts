@@ -1,7 +1,7 @@
 import Phaser from "phaser";
 import type { PlayerId } from "./Player";
 
-export type BulletOwnerId = PlayerId | "BOT";
+export type BulletOwnerId = PlayerId;
 
 /**
  * A projectile. Designed to be pooled (see BulletPool): the sprite and trail
@@ -44,11 +44,10 @@ export class Bullet {
     direction: Phaser.Math.Vector2,
     color: number,
     mega: boolean,
-    damageOverride?: number,
   ): void {
     this.ownerId = ownerId;
     this.mega = mega;
-    this.damage = damageOverride ?? (mega ? 32 : 15);
+    this.damage = mega ? 32 : 15;
     this.velocity.copy(direction).normalize().scale(mega ? 500 : 540);
 
     this.sprite

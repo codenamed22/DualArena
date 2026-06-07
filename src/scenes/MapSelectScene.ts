@@ -1,5 +1,6 @@
 import Phaser from "phaser";
 import { arenaMaps, type ArenaMap } from "../config/maps";
+import type { PlayerId } from "../entities/Player";
 import { GAME_WIDTH, SCENE_KEYS, type GameMode } from "../utils/constants";
 import { AnimatedBackground } from "../utils/background";
 import { addSceneBloom, applyNeonGlow, bodyStyle, headingStyle, HEX, titleStyle } from "../utils/theme";
@@ -7,10 +8,12 @@ import { audio } from "../utils/audio";
 
 type MapSelectSceneData = {
   gameMode?: GameMode;
+  humanSide?: PlayerId;
 };
 
 export class MapSelectScene extends Phaser.Scene {
   private gameMode: GameMode = "local";
+  private humanSide: PlayerId = "P1";
 
   constructor() {
     super(SCENE_KEYS.MAP_SELECT);
@@ -18,6 +21,7 @@ export class MapSelectScene extends Phaser.Scene {
 
   init(data: MapSelectSceneData): void {
     this.gameMode = data.gameMode ?? "local";
+    this.humanSide = data.humanSide === "P2" ? "P2" : "P1";
   }
 
   create(): void {
@@ -53,7 +57,8 @@ export class MapSelectScene extends Phaser.Scene {
 
       if (event.code === "Escape" || event.code === "Backspace") {
         this.cameras.main.fadeOut(260, 5, 7, 18);
-        this.cameras.main.once("camerafadeoutcomplete", () => this.scene.start(SCENE_KEYS.MODE_SELECT));
+        const backScene = this.gameMode === "solo-bot" ? SCENE_KEYS.SIDE_SELECT : SCENE_KEYS.MODE_SELECT;
+        this.cameras.main.once("camerafadeoutcomplete", () => this.scene.start(backScene, { gameMode: this.gameMode }));
       }
     });
 
@@ -64,7 +69,7 @@ export class MapSelectScene extends Phaser.Scene {
     audio.uiSelect();
     this.cameras.main.fadeOut(280, 5, 7, 18);
     this.cameras.main.once("camerafadeoutcomplete", () => {
-      this.scene.start(SCENE_KEYS.BOT_SELECT, { mapId: map.id, gameMode: this.gameMode });
+      this.scene.start(SCENE_KEYS.GAME, { mapId: map.id, gameMode: this.gameMode, humanSide: this.humanSide });
     });
   }
 

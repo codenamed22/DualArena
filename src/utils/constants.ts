@@ -12,8 +12,8 @@ export const SCENE_KEYS = {
   BOOT: "BootScene",
   MENU: "MenuScene",
   MODE_SELECT: "ModeSelectScene",
+  SIDE_SELECT: "SideSelectScene",
   MAP_SELECT: "MapSelectScene",
-  BOT_SELECT: "BotSelectScene",
   GAME: "GameScene",
   WINNER: "WinnerScene",
 } as const;
