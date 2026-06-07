@@ -24,7 +24,7 @@ export class MenuScene extends Phaser.Scene {
       audio.resume();
       audio.uiSelect();
       this.cameras.main.fadeOut(280, 5, 7, 18);
-      this.cameras.main.once("camerafadeoutcomplete", () => this.scene.start(SCENE_KEYS.MAP_SELECT));
+      this.cameras.main.once("camerafadeoutcomplete", () => this.scene.start(SCENE_KEYS.MODE_SELECT));
     });
 
     this.cameras.main.fadeIn(420, 5, 7, 18);

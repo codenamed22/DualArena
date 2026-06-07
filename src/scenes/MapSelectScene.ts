@@ -1,13 +1,23 @@
 import Phaser from "phaser";
 import { arenaMaps, type ArenaMap } from "../config/maps";
-import { GAME_WIDTH, SCENE_KEYS } from "../utils/constants";
+import { GAME_WIDTH, SCENE_KEYS, type GameMode } from "../utils/constants";
 import { AnimatedBackground } from "../utils/background";
 import { addSceneBloom, applyNeonGlow, bodyStyle, headingStyle, HEX, titleStyle } from "../utils/theme";
 import { audio } from "../utils/audio";
 
+type MapSelectSceneData = {
+  gameMode?: GameMode;
+};
+
 export class MapSelectScene extends Phaser.Scene {
+  private gameMode: GameMode = "local";
+
   constructor() {
     super(SCENE_KEYS.MAP_SELECT);
+  }
+
+  init(data: MapSelectSceneData): void {
+    this.gameMode = data.gameMode ?? "local";
   }
 
   create(): void {
@@ -20,7 +30,7 @@ export class MapSelectScene extends Phaser.Scene {
     applyNeonGlow(title, HEX.cyan, 16);
 
     this.add
-      .text(GAME_WIDTH / 2, 124, "Press  1  /  2  /  3  to deploy", headingStyle(20, HEX.lime))
+      .text(GAME_WIDTH / 2, 124, `${this.getModeLabel()}   /   Press  1  /  2  /  3`, headingStyle(20, HEX.lime))
       .setOrigin(0.5);
 
     const cardWidth = 270;
@@ -43,7 +53,7 @@ export class MapSelectScene extends Phaser.Scene {
 
       if (event.code === "Escape" || event.code === "Backspace") {
         this.cameras.main.fadeOut(260, 5, 7, 18);
-        this.cameras.main.once("camerafadeoutcomplete", () => this.scene.start(SCENE_KEYS.MENU));
+        this.cameras.main.once("camerafadeoutcomplete", () => this.scene.start(SCENE_KEYS.MODE_SELECT));
       }
     });
 
@@ -54,8 +64,12 @@ export class MapSelectScene extends Phaser.Scene {
     audio.uiSelect();
     this.cameras.main.fadeOut(280, 5, 7, 18);
     this.cameras.main.once("camerafadeoutcomplete", () => {
-      this.scene.start(SCENE_KEYS.GAME, { mapId: map.id });
+      this.scene.start(SCENE_KEYS.BOT_SELECT, { mapId: map.id, gameMode: this.gameMode });
     });
+  }
+
+  private getModeLabel(): string {
+    return this.gameMode === "solo-bot" ? "Solo vs Bot" : "Local Duel";
   }
 
   private addMapCard(x: number, y: number, width: number, map: ArenaMap, hotkey: number): void {
