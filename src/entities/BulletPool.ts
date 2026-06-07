@@ -24,6 +24,12 @@ export class BulletPool {
   }
 
   release(bullet: Bullet): void {
+    // Guard against double-release: a bullet returned twice would sit in the
+    // free list twice and later be handed out (and tracked) as two live shots.
+    if (!bullet.active) {
+      return;
+    }
+
     bullet.deactivate();
     this.free.push(bullet);
   }

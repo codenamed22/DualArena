@@ -10,7 +10,7 @@ type WinnerSceneData = {
   winnerId?: PlayerId;
   mapId?: ArenaMapId;
   gameMode?: GameMode;
-  botCount?: number;
+  humanSide?: PlayerId;
   score?: Record<PlayerId, number>;
 };
 
@@ -18,7 +18,7 @@ export class WinnerScene extends Phaser.Scene {
   private winnerId: PlayerId = "P1";
   private mapId: ArenaMapId = "cyber-core";
   private gameMode: GameMode = "local";
-  private botCount = 0;
+  private humanSide: PlayerId = "P1";
   private score: Record<PlayerId, number> = { P1: 0, P2: 0 };
 
   constructor() {
@@ -29,7 +29,7 @@ export class WinnerScene extends Phaser.Scene {
     this.winnerId = data.winnerId ?? "P1";
     this.mapId = data.mapId ?? "cyber-core";
     this.gameMode = data.gameMode ?? "local";
-    this.botCount = Phaser.Math.Clamp(Math.floor(data.botCount ?? 0), 0, 3);
+    this.humanSide = data.humanSide === "P2" ? "P2" : "P1";
     this.score = data.score ?? { P1: 0, P2: 0 };
   }
 
@@ -58,9 +58,6 @@ export class WinnerScene extends Phaser.Scene {
     this.add
       .text(GAME_WIDTH / 2, 286, `FINAL SCORE   P1  ${this.score.P1}  —  ${this.score.P2}  P2`, headingStyle(22, HEX.text))
       .setOrigin(0.5);
-    this.add
-      .text(GAME_WIDTH / 2, 318, `BOTS: ${this.botCount}`, bodyStyle(17, HEX.gold, "700"))
-      .setOrigin(0.5);
 
     this.confettiBurst(accentNum);
     audio.matchWin();
@@ -72,11 +69,12 @@ export class WinnerScene extends Phaser.Scene {
     this.tweens.add({ targets: restart, alpha: 0.45, duration: 720, yoyo: true, repeat: -1, ease: "Sine.easeInOut" });
 
     this.add
-      .text(GAME_WIDTH / 2, 400, "Press Enter for Map Select", bodyStyle(18, HEX.muted, "600"))
+      .text(GAME_WIDTH / 2, 400, "Enter: Arena Select      Esc: Main Menu", bodyStyle(18, HEX.muted, "600"))
       .setOrigin(0.5);
 
-    this.input.keyboard?.once("keydown-R", () => this.transitionTo(SCENE_KEYS.GAME, { mapId: this.mapId, gameMode: this.gameMode, botCount: this.botCount }));
-    this.input.keyboard?.once("keydown-ENTER", () => this.transitionTo(SCENE_KEYS.MAP_SELECT, { gameMode: this.gameMode }));
+    this.input.keyboard?.once("keydown-R", () => this.transitionTo(SCENE_KEYS.GAME, { mapId: this.mapId, gameMode: this.gameMode, humanSide: this.humanSide }));
+    this.input.keyboard?.once("keydown-ENTER", () => this.transitionTo(SCENE_KEYS.MAP_SELECT, { gameMode: this.gameMode, humanSide: this.humanSide }));
+    this.input.keyboard?.once("keydown-ESC", () => this.transitionTo(SCENE_KEYS.MENU));
 
     this.cameras.main.fadeIn(420, 5, 7, 18);
   }
@@ -106,8 +104,8 @@ export class WinnerScene extends Phaser.Scene {
   }
 
   private getWinnerTitle(): string {
-    if (this.gameMode === "solo-bot" && this.winnerId === "P2") {
-      return "AI RIVAL WINS";
+    if (this.gameMode === "solo-bot") {
+      return this.winnerId === this.humanSide ? "YOU WIN" : "AI RIVAL WINS";
     }
 
     return this.winnerId === "P1" ? "PLAYER 1" : "PLAYER 2";
