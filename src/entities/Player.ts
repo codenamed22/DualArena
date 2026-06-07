@@ -145,6 +145,10 @@ export class Player {
   update(deltaSeconds: number): void {
     const movement = this.getMovementVector();
 
+    this.updateWithMovement(deltaSeconds, movement);
+  }
+
+  updateWithMovement(deltaSeconds: number, movement: Phaser.Math.Vector2): void {
     if (movement.lengthSq() > 0) {
       movement.normalize();
       this.facing = movement.clone();
@@ -163,6 +167,16 @@ export class Player {
     this.container.y = Phaser.Math.Clamp(this.container.y, this.bounds.top + 24, this.bounds.bottom - 24);
 
     this.updateShieldVisual();
+  }
+
+  aimAt(target: Phaser.Math.Vector2): void {
+    const direction = target.subtract(this.position);
+    if (direction.lengthSq() <= 0.01) {
+      return;
+    }
+
+    this.facing = direction.normalize();
+    this.face.rotation = this.facing.angle();
   }
 
   private moveAxis(axis: "x" | "y", delta: number): void {

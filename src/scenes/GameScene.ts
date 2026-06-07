@@ -1,18 +1,21 @@
 import Phaser from "phaser";
 import { getArenaMap, type ArenaMap, type ArenaMapId } from "../config/maps";
+import { Bot } from "../entities/Bot";
 import { Bullet } from "../entities/Bullet";
 import { BulletPool } from "../entities/BulletPool";
 import { DynamicObstacle, type DynamicObstacleConfig } from "../entities/DynamicObstacle";
 import { Player } from "../entities/Player";
 import { Powerup, type PowerupType } from "../entities/Powerup";
 import { ArenaBackground } from "./ArenaBackground";
-import { ARENA_BOUNDS, COLORS, GAME_HEIGHT, GAME_WIDTH, SCENE_KEYS } from "../utils/constants";
+import { ARENA_BOUNDS, COLORS, GAME_HEIGHT, GAME_WIDTH, SCENE_KEYS, type GameMode } from "../utils/constants";
 import { addSceneBloom, bodyStyle, HEX, titleStyle } from "../utils/theme";
 import { audio } from "../utils/audio";
 import { Hud } from "../ui/Hud";
 
 type GameSceneData = {
   mapId?: ArenaMapId;
+  gameMode?: GameMode;
+  botCount?: number;
 };
 
 type RoundPhase = "countdown" | "playing" | "round-over";
@@ -26,6 +29,7 @@ type ArenaEventZone = {
 export class GameScene extends Phaser.Scene {
   private selectedMap: ArenaMap = getArenaMap("cyber-core");
   private players: Player[] = [];
+  private bots: Bot[] = [];
   private bullets: Bullet[] = [];
   private bulletPool!: BulletPool;
   private arenaBounds = new Phaser.Geom.Rectangle(ARENA_BOUNDS.x, ARENA_BOUNDS.y, ARENA_BOUNDS.width, ARENA_BOUNDS.height);
@@ -52,6 +56,11 @@ export class GameScene extends Phaser.Scene {
   private lastEventDamageAt: Record<"P1" | "P2", number> = { P1: -Infinity, P2: -Infinity };
   private roundNumber = 1;
   private roundWins: Record<"P1" | "P2", number> = { P1: 0, P2: 0 };
+  private gameMode: GameMode = "local";
+  private botCount = 0;
+  private aiStrafeDirection = 1;
+  private nextAiStrafeAt = 0;
+  private nextAiShotAt = 0;
 
   private readonly roundDurationMs = 90000;
   private readonly winsNeeded = 2;
@@ -65,6 +74,10 @@ export class GameScene extends Phaser.Scene {
   private readonly arenaEventWarningDuration = 1000;
   private readonly arenaEventActiveDuration = 2200;
   private readonly arenaEventDamageCooldown = 650;
+  private readonly botBulletDamage = 9;
+  private readonly aiShotCooldown = { min: 520, max: 760 };
+  private readonly aiPreferredDistance = 245;
+  private readonly aiMinDistance = 150;
 
   constructor() {
     super(SCENE_KEYS.GAME);
@@ -72,15 +85,19 @@ export class GameScene extends Phaser.Scene {
 
   init(data: GameSceneData): void {
     this.selectedMap = getArenaMap(data.mapId ?? "cyber-core");
+    this.gameMode = data.gameMode ?? "local";
+    this.botCount = Phaser.Math.Clamp(Math.floor(data.botCount ?? 0), 0, 3);
   }
 
   create(): void {
     this.players = [];
+    this.bots = [];
     this.bullets = [];
     this.bulletPool = new BulletPool(this);
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
       this.bulletPool.destroyAll();
       this.destroyDynamicObstacles();
+      this.destroyBots();
     });
     this.clearPowerups();
     this.lastShotAt = { P1: -Infinity, P2: -Infinity };
@@ -91,11 +108,15 @@ export class GameScene extends Phaser.Scene {
     this.roundPhase = "countdown";
     this.roundNumber = 1;
     this.roundWins = { P1: 0, P2: 0 };
+    this.aiStrafeDirection = 1;
+    this.nextAiStrafeAt = 0;
+    this.nextAiShotAt = 0;
     this.drawArena();
     this.drawObstacles();
     this.hud = new Hud(this, this.selectedMap.name, this.selectedMap.accentColor, this.winsNeeded);
     this.createPlayers();
     this.players.forEach((player) => player.setObstacles(this.obstacles));
+    this.createBots();
     this.createAttackKeys();
     this.startCountdown();
 
@@ -112,8 +133,10 @@ export class GameScene extends Phaser.Scene {
 
     if (this.combatActive && this.roundPhase === "playing") {
       this.updateDynamicObstacles(time);
-      this.players.forEach((player) => player.update(deltaSeconds));
+      this.updatePlayers(time, deltaSeconds);
+      this.updateBots(time, deltaSeconds);
       this.updateShooting(time);
+      this.updateBotShooting(time);
       this.updateBullets(deltaSeconds);
       this.checkBulletHits();
       this.updatePowerupEffects(time);
@@ -340,6 +363,7 @@ export class GameScene extends Phaser.Scene {
     this.dynamicObstacles.forEach((obstacle) => {
       obstacle.update(time);
       this.players.forEach((player) => player.pushOutOfObstacle(obstacle.bounds));
+      this.bots.forEach((bot) => bot.pushOutOfObstacle(obstacle.bounds));
     });
   }
 
@@ -354,6 +378,159 @@ export class GameScene extends Phaser.Scene {
 
   private hitsObstacle(bullet: Bullet): boolean {
     return this.obstacles.some((rect) => rect.contains(bullet.sprite.x, bullet.sprite.y));
+  }
+
+  private createBots(): void {
+    if (this.botCount <= 0) {
+      return;
+    }
+
+    const positions = this.getBotSpawnPositions(this.botCount);
+    this.bots = positions.map((position, index) => {
+      const bot = new Bot(this, {
+        index,
+        x: position.x,
+        y: position.y,
+        bounds: this.arenaBounds,
+      });
+      bot.setObstacles(this.obstacles);
+      return bot;
+    });
+  }
+
+  private getBotSpawnPositions(count: number): Phaser.Math.Vector2[] {
+    const cx = this.arenaBounds.centerX;
+    const cy = this.arenaBounds.centerY;
+    const presets = [
+      [new Phaser.Math.Vector2(cx, cy - 78)],
+      [new Phaser.Math.Vector2(cx, cy - 118), new Phaser.Math.Vector2(cx, cy + 118)],
+      [new Phaser.Math.Vector2(cx, cy - 124), new Phaser.Math.Vector2(cx, cy + 124), new Phaser.Math.Vector2(cx, cy)],
+    ];
+    const preferred = presets[count - 1] ?? [];
+
+    return preferred.map((position, index) => this.getSafeBotPosition(position, index));
+  }
+
+  private getSafeBotPosition(preferred: Phaser.Math.Vector2, index: number): Phaser.Math.Vector2 {
+    const candidates = [
+      preferred,
+      new Phaser.Math.Vector2(this.arenaBounds.centerX - 96, this.arenaBounds.centerY - 118),
+      new Phaser.Math.Vector2(this.arenaBounds.centerX + 96, this.arenaBounds.centerY + 118),
+      new Phaser.Math.Vector2(this.arenaBounds.centerX + 120, this.arenaBounds.centerY - 92),
+      new Phaser.Math.Vector2(this.arenaBounds.centerX - 120, this.arenaBounds.centerY + 92),
+      new Phaser.Math.Vector2(this.arenaBounds.left + 270 + index * 58, this.arenaBounds.centerY),
+    ];
+
+    return candidates.find((candidate) => this.isSafeBotSpot(candidate)) ?? preferred;
+  }
+
+  private isSafeBotSpot(position: Phaser.Math.Vector2): boolean {
+    const padding = 46;
+    const b = this.arenaBounds;
+
+    if (position.x < b.left + padding || position.x > b.right - padding || position.y < b.top + padding || position.y > b.bottom - padding) {
+      return false;
+    }
+
+    const safeFromPlayers = this.players.every((player) => Phaser.Math.Distance.Between(
+      position.x,
+      position.y,
+      player.position.x,
+      player.position.y,
+    ) > 120);
+    const safeFromBots = this.bots.every((bot) => Phaser.Math.Distance.Between(
+      position.x,
+      position.y,
+      bot.position.x,
+      bot.position.y,
+    ) > 90);
+    const safeFromObstacles = this.obstacles.every((rect) => {
+      const inflated = new Phaser.Geom.Rectangle(rect.x - 28, rect.y - 28, rect.width + 56, rect.height + 56);
+      return !inflated.contains(position.x, position.y);
+    });
+    const safeFromPowerup = !this.activePowerup || Phaser.Math.Distance.Between(
+      position.x,
+      position.y,
+      this.activePowerup.position.x,
+      this.activePowerup.position.y,
+    ) > 80;
+
+    return safeFromPlayers && safeFromBots && safeFromObstacles && safeFromPowerup;
+  }
+
+  private updateBots(time: number, deltaSeconds: number): void {
+    if (this.bots.length === 0) {
+      return;
+    }
+
+    const avoidZones = this.arenaEventPhase === "warning" || this.arenaEventPhase === "active"
+      ? this.arenaEventZones.map((zone) => zone.bounds)
+      : [];
+    this.bots.forEach((bot) => bot.update(time, deltaSeconds, this.players, avoidZones));
+  }
+
+  private updatePlayers(time: number, deltaSeconds: number): void {
+    const [playerOne, playerTwo] = this.players;
+
+    playerOne?.update(deltaSeconds);
+
+    if (!playerTwo) {
+      return;
+    }
+
+    if (this.gameMode === "solo-bot" && playerOne) {
+      this.updateAiOpponent(playerOne, playerTwo, time, deltaSeconds);
+      return;
+    }
+
+    playerTwo.update(deltaSeconds);
+  }
+
+  private updateAiOpponent(target: Player, aiPlayer: Player, time: number, deltaSeconds: number): void {
+    if (time >= this.nextAiStrafeAt) {
+      this.aiStrafeDirection = Phaser.Math.Between(0, 1) === 0 ? -1 : 1;
+      this.nextAiStrafeAt = time + Phaser.Math.Between(850, 1450);
+    }
+
+    const toTarget = target.position.subtract(aiPlayer.position);
+    const distance = Math.max(1, toTarget.length());
+    const desired = toTarget.clone().normalize();
+
+    if (distance < this.aiMinDistance) {
+      desired.scale(-0.9);
+    } else if (distance < this.aiPreferredDistance) {
+      desired.scale(0.16);
+    }
+
+    const strafe = new Phaser.Math.Vector2(-toTarget.y, toTarget.x).normalize().scale(this.aiStrafeDirection * 0.45);
+    const avoid = this.getAiHazardAvoidance(aiPlayer).scale(1.35);
+    const movement = desired.add(strafe).add(avoid);
+
+    aiPlayer.updateWithMovement(deltaSeconds, movement);
+    aiPlayer.aimAt(this.getJitteredAimPoint(aiPlayer.position, target.position, 0.09));
+  }
+
+  private getAiHazardAvoidance(player: Player): Phaser.Math.Vector2 {
+    if (this.arenaEventPhase !== "warning" && this.arenaEventPhase !== "active") {
+      return new Phaser.Math.Vector2(0, 0);
+    }
+
+    const avoid = new Phaser.Math.Vector2(0, 0);
+    const playerBounds = new Phaser.Geom.Rectangle(
+      player.position.x - player.radius,
+      player.position.y - player.radius,
+      player.radius * 2,
+      player.radius * 2,
+    );
+
+    this.arenaEventZones.forEach((zone) => {
+      const inflated = new Phaser.Geom.Rectangle(zone.bounds.x - 42, zone.bounds.y - 42, zone.bounds.width + 84, zone.bounds.height + 84);
+      if (Phaser.Geom.Intersects.RectangleToRectangle(inflated, playerBounds)) {
+        avoid.add(new Phaser.Math.Vector2(player.position.x - zone.bounds.centerX, player.position.y - zone.bounds.centerY).normalize());
+      }
+    });
+
+    return avoid;
   }
 
   private createPlayers(): void {
@@ -395,9 +572,22 @@ export class GameScene extends Phaser.Scene {
 
     this.players.push(playerOne, playerTwo);
 
+    const controlsText = this.gameMode === "solo-bot"
+      ? "P1: WASD + Space      P2: AI Controlled"
+      : "P1: WASD + Space      P2: Arrow Keys + Enter / Shift";
     this.add
-      .text(GAME_WIDTH / 2, GAME_HEIGHT - 14, "P1: WASD + Space      P2: Arrow Keys + Enter / Shift", bodyStyle(15, HEX.muted, "600"))
+      .text(GAME_WIDTH / 2, GAME_HEIGHT - 14, controlsText, bodyStyle(15, HEX.muted, "600"))
       .setOrigin(0.5);
+    this.add
+      .text(GAME_WIDTH - 28, GAME_HEIGHT - 14, `Bots: ${this.botCount}`, bodyStyle(15, HEX.gold, "700"))
+      .setOrigin(1, 0.5);
+    this.add
+      .text(28, GAME_HEIGHT - 14, `Mode: ${this.getModeLabel()}`, bodyStyle(15, HEX.gold, "700"))
+      .setOrigin(0, 0.5);
+  }
+
+  private getModeLabel(): string {
+    return this.gameMode === "solo-bot" ? "Solo vs Bot" : "Local Duel";
   }
 
   private createAttackKeys(): void {
@@ -461,6 +651,7 @@ export class GameScene extends Phaser.Scene {
     this.nextPowerupSpawnAt = this.time.now + Phaser.Math.Between(this.powerupFirstSpawn.min, this.powerupFirstSpawn.max);
     this.scheduleArenaEvent(this.time.now);
     this.lastShotAt = { P1: -Infinity, P2: -Infinity };
+    this.nextAiShotAt = this.gameMode === "solo-bot" ? this.time.now + Phaser.Math.Between(450, 850) : 0;
     this.roundEndsAt = this.time.now + this.roundDurationMs;
     this.roundTimeLeftMs = this.roundDurationMs;
   }
@@ -469,7 +660,10 @@ export class GameScene extends Phaser.Scene {
     this.clearRoundObjects();
     this.resetDynamicObstacles();
     this.players.forEach((player) => player.resetForRound());
+    this.resetBots();
     this.lastShotAt = { P1: -Infinity, P2: -Infinity };
+    this.nextAiShotAt = 0;
+    this.nextAiStrafeAt = 0;
     this.nextPowerupSpawnAt = Number.POSITIVE_INFINITY;
     this.nextArenaEventAt = Number.POSITIVE_INFINITY;
     this.lastEventDamageAt = { P1: -Infinity, P2: -Infinity };
@@ -478,7 +672,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   private resetMatch(): void {
-    this.scene.restart({ mapId: this.selectedMap.id });
+    this.scene.restart({ mapId: this.selectedMap.id, gameMode: this.gameMode, botCount: this.botCount });
   }
 
   private clearRoundObjects(): void {
@@ -496,6 +690,16 @@ export class GameScene extends Phaser.Scene {
     this.roundOverlayObjects = [];
   }
 
+  private resetBots(): void {
+    this.destroyBots();
+    this.createBots();
+  }
+
+  private destroyBots(): void {
+    this.bots.forEach((bot) => bot.destroy());
+    this.bots = [];
+  }
+
   private updateShooting(time: number): void {
     const [playerOne, playerTwo] = this.players;
 
@@ -503,9 +707,55 @@ export class GameScene extends Phaser.Scene {
       this.tryShoot(playerOne, time);
     }
 
+    if (this.gameMode === "solo-bot") {
+      if (playerOne && playerTwo) {
+        this.tryAiOpponentShoot(playerTwo, playerOne, time);
+      }
+      return;
+    }
+
     if (playerTwo && (this.playerTwoEnterAttack?.isDown || this.playerTwoShiftAttack?.isDown)) {
       this.tryShoot(playerTwo, time);
     }
+  }
+
+  private tryAiOpponentShoot(aiPlayer: Player, target: Player, time: number): void {
+    if (time < this.nextAiShotAt) {
+      return;
+    }
+
+    const distance = Phaser.Math.Distance.Between(aiPlayer.position.x, aiPlayer.position.y, target.position.x, target.position.y);
+    if (distance > 430 || Phaser.Math.FloatBetween(0, 1) < 0.16) {
+      return;
+    }
+
+    aiPlayer.aimAt(this.getJitteredAimPoint(aiPlayer.position, target.position, 0.12));
+    this.tryShoot(aiPlayer, time);
+    this.nextAiShotAt = time + Phaser.Math.Between(this.aiShotCooldown.min, this.aiShotCooldown.max);
+  }
+
+  private getJitteredAimPoint(origin: Phaser.Math.Vector2, target: Phaser.Math.Vector2, maxRadians: number): Phaser.Math.Vector2 {
+    const direction = target.subtract(origin);
+    direction.rotate(Phaser.Math.FloatBetween(-maxRadians, maxRadians));
+    return origin.add(direction);
+  }
+
+  private updateBotShooting(time: number): void {
+    this.bots.forEach((bot) => {
+      if (!bot.tryConsumeShot(time)) {
+        return;
+      }
+
+      const direction = bot.getShootDirection();
+      const spawnDistance = bot.radius + 12;
+      const position = bot.position.add(direction.clone().scale(spawnDistance));
+      const bullet = this.bulletPool.obtain();
+      bullet.spawn(bot.id, position.x, position.y, direction, bot.color, false, this.botBulletDamage);
+
+      this.bullets.push(bullet);
+      this.muzzleFlash(position.x, position.y, bot.color);
+      audio.shoot();
+    });
   }
 
   private tryShoot(player: Player, time: number): void {
@@ -631,45 +881,127 @@ export class GameScene extends Phaser.Scene {
   private checkBulletHits(): void {
     for (let bulletIndex = this.bullets.length - 1; bulletIndex >= 0; bulletIndex -= 1) {
       const bullet = this.bullets[bulletIndex];
-      const target = this.players.find((player) => player.id !== bullet.ownerId);
 
-      if (!target) {
+      if (bullet.ownerId === "BOT" && this.checkBotBulletHit(bullet, bulletIndex)) {
         continue;
       }
 
-      const distance = Phaser.Math.Distance.Between(bullet.sprite.x, bullet.sprite.y, target.position.x, target.position.y);
-
-      if (distance > target.radius + bullet.sprite.radius) {
+      if (bullet.ownerId !== "BOT" && this.checkPlayerBulletHit(bullet, bulletIndex)) {
         continue;
       }
+    }
+  }
 
-      const hadShield = target.hasShield;
-      const damageDealt = target.takeDamage(bullet.damage);
+  private checkBotBulletHit(bullet: Bullet, bulletIndex: number): boolean {
+    const target = this.players.find((player) => {
+      const distance = Phaser.Math.Distance.Between(bullet.sprite.x, bullet.sprite.y, player.position.x, player.position.y);
+      return distance <= player.radius + bullet.sprite.radius;
+    });
 
-      if (hadShield) {
-        audio.shieldHit();
-      } else {
-        audio.hit();
+    if (!target) {
+      return false;
+    }
+
+    this.damageHumanTarget(target, bullet);
+    this.bulletPool.release(bullet);
+    this.bullets.splice(bulletIndex, 1);
+
+    if (target.currentHealth <= 0) {
+      const winner = this.getSurvivingHumanWinner(target);
+      this.playerDeath(target);
+      this.endRound(winner);
+    }
+
+    return true;
+  }
+
+  private checkPlayerBulletHit(bullet: Bullet, bulletIndex: number): boolean {
+    const humanTarget = this.players.find((player) => {
+      if (player.id === bullet.ownerId) {
+        return false;
       }
 
-      const impactColor = hadShield ? 0xffe66d : bullet.sprite.fillColor;
-      this.spawnImpact(bullet.sprite.x, bullet.sprite.y, impactColor, bullet.mega ? 20 : 12);
-      this.hitRing(bullet.sprite.x, bullet.sprite.y, impactColor);
-      this.showFloatingText(target.position.x, target.position.y - 48, hadShield ? `SHIELD -${damageDealt}` : `-${damageDealt}`, hadShield ? "#ffe66d" : "#f4f7ff");
-      this.cameras.main.shake(120, bullet.mega ? 0.008 : 0.004);
-      this.cameraPunch(bullet.mega ? 0.03 : 0.016);
+      const distance = Phaser.Math.Distance.Between(bullet.sprite.x, bullet.sprite.y, player.position.x, player.position.y);
+      return distance <= player.radius + bullet.sprite.radius;
+    });
+
+    if (humanTarget) {
+      this.damageHumanTarget(humanTarget, bullet);
       this.bulletPool.release(bullet);
       this.bullets.splice(bulletIndex, 1);
 
-      if (target.currentHealth <= 0) {
+      if (humanTarget.currentHealth <= 0) {
         const winner = this.players.find((player) => player.id === bullet.ownerId);
 
         if (winner) {
-          this.playerDeath(target);
+          this.playerDeath(humanTarget);
           this.endRound(winner);
         }
       }
+
+      return true;
     }
+
+    const botTarget = this.bots.find((bot) => {
+      if (!bot.alive) {
+        return false;
+      }
+
+      const distance = Phaser.Math.Distance.Between(bullet.sprite.x, bullet.sprite.y, bot.position.x, bot.position.y);
+      return distance <= bot.radius + bullet.sprite.radius;
+    });
+
+    if (!botTarget) {
+      return false;
+    }
+
+    botTarget.takeDamage(bullet.damage);
+    audio.hit();
+    this.spawnImpact(bullet.sprite.x, bullet.sprite.y, botTarget.color, bullet.mega ? 16 : 8, 34);
+    this.showFloatingText(botTarget.position.x, botTarget.position.y - 42, `-${bullet.damage}`, "#ffe66d");
+    this.bulletPool.release(bullet);
+    this.bullets.splice(bulletIndex, 1);
+
+    if (!botTarget.alive) {
+      this.destroyBot(botTarget);
+    }
+
+    return true;
+  }
+
+  private damageHumanTarget(target: Player, bullet: Bullet): void {
+    const hadShield = target.hasShield;
+    const damageDealt = target.takeDamage(bullet.damage);
+
+    if (hadShield) {
+      audio.shieldHit();
+    } else {
+      audio.hit();
+    }
+
+    const impactColor = hadShield ? 0xffe66d : bullet.sprite.fillColor;
+    this.spawnImpact(bullet.sprite.x, bullet.sprite.y, impactColor, bullet.mega ? 20 : 12);
+    this.hitRing(bullet.sprite.x, bullet.sprite.y, impactColor);
+    this.showFloatingText(target.position.x, target.position.y - 48, hadShield ? `SHIELD -${damageDealt}` : `-${damageDealt}`, hadShield ? "#ffe66d" : "#f4f7ff");
+    this.cameras.main.shake(120, bullet.mega ? 0.008 : 0.004);
+    this.cameraPunch(bullet.mega ? 0.03 : 0.016);
+  }
+
+  private destroyBot(bot: Bot): void {
+    this.spawnImpact(bot.position.x, bot.position.y, bot.color, 18, 52);
+    this.hitRing(bot.position.x, bot.position.y, bot.color);
+    bot.destroy();
+    this.bots = this.bots.filter((candidate) => candidate !== bot);
+  }
+
+  private getSurvivingHumanWinner(defeated: Player): Player {
+    const survivor = this.players.find((player) => player.id !== defeated.id && player.currentHealth > 0);
+    if (survivor) {
+      return survivor;
+    }
+
+    const [playerOne, playerTwo] = this.players;
+    return playerOne.currentHealth >= playerTwo.currentHealth ? playerOne : playerTwo;
   }
 
   private spawnImpact(x: number, y: number, color: number, count = 12, maxDistance = 48): void {
@@ -1008,12 +1340,18 @@ export class GameScene extends Phaser.Scene {
       player.position.x,
       player.position.y,
     ) > 120);
+    const safeFromBots = this.bots.every((bot) => Phaser.Math.Distance.Between(
+      position.x,
+      position.y,
+      bot.position.x,
+      bot.position.y,
+    ) > 90);
     const safeFromObstacles = this.obstacles.every((rect) => {
       const inflated = new Phaser.Geom.Rectangle(rect.x - 40, rect.y - 40, rect.width + 80, rect.height + 80);
       return !inflated.contains(position.x, position.y);
     });
 
-    return safeFromPlayers && safeFromObstacles;
+    return safeFromPlayers && safeFromBots && safeFromObstacles;
   }
 
   /**
@@ -1147,6 +1485,8 @@ export class GameScene extends Phaser.Scene {
           this.scene.start(SCENE_KEYS.WINNER, {
             winnerId: winner.id,
             mapId: this.selectedMap.id,
+            gameMode: this.gameMode,
+            botCount: this.botCount,
             score: { ...this.roundWins },
           });
         });

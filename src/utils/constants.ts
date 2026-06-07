@@ -11,10 +11,14 @@ export const ARENA_BOUNDS = {
 export const SCENE_KEYS = {
   BOOT: "BootScene",
   MENU: "MenuScene",
+  MODE_SELECT: "ModeSelectScene",
   MAP_SELECT: "MapSelectScene",
+  BOT_SELECT: "BotSelectScene",
   GAME: "GameScene",
   WINNER: "WinnerScene",
 } as const;
+
+export type GameMode = "local" | "solo-bot";
 
 export const COLORS = {
   background: 0x070914,
