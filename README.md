@@ -25,7 +25,7 @@ The project focuses on a complete playable demo over unnecessary complexity: res
 
 The original challenge was to build a quick, fun, complete local multiplayer arena game where two players compete on the same keyboard or same device. Required elements included two playable characters, same-screen local multiplayer, one arena, one attack mechanic, at least two powerups, health or score tracking, round start/end, a winner screen, and basic controls.
 
-DuelByte Arena satisfies those requirements with a polished Phaser-based implementation and adds optional stretch features such as multiple arenas, Solo vs Bot, extra arena bots, dynamic obstacles, hazards, particles, screen shake, procedural audio, and fullscreen support.
+DuelByte Arena satisfies those requirements with a polished Phaser-based implementation and adds optional stretch features such as multiple arenas, Solo vs Bot, dynamic obstacles, hazards, particles, screen shake, procedural audio, and fullscreen support.
 
 ## What We Built
 
@@ -73,9 +73,6 @@ This is the core hackathon mode and best represents the theme: **Same keyboard. 
 
 Player 1 fights an AI-controlled Player 2. The AI rival can move, shoot, win rounds, and win the match. This mode keeps the game playable even when only one person is available for a demo.
 
-### Extra Arena Bots
-
-After choosing a map, players can add 0-3 neutral arena bots. These bots move, shoot, and can be destroyed, but they do not win rounds. They act as optional pressure and chaos.
 
 ## Arena Maps
 
@@ -113,7 +110,6 @@ Map-specific arena events trigger during active gameplay with a warning phase fi
 | Menu | Enter to continue |
 | Mode Select | 1 Local Duel, 2 Solo vs Bot |
 | Map Select | 1 Cyber Core, 2 Forest Arena, 3 Volcano Rift |
-| Bot Select | 0-3 extra arena bots |
 | Select Screens | Esc or Backspace to go back |
 | Any Screen | F to toggle fullscreen |
 
@@ -214,13 +210,12 @@ The game is best played in a desktop/laptop browser with a keyboard.
 1. Open the menu and introduce the theme.
 2. Choose **Local Duel**.
 3. Pick **Cyber Core Arena**.
-4. Select **0 extra bots** for the cleanest first round.
-5. Show both players moving, shooting, taking damage, and collecting a powerup.
-6. Let an arena hazard or moving obstacle appear.
-7. Show a round result.
-8. Restart or return to map/mode selection.
-9. Choose **Solo vs Bot** with 1 extra arena bot to show AI and chaos.
-10. End on the champion screen.
+4. Show both players moving, shooting, taking damage, and collecting a powerup.
+5. Let an arena hazard or moving obstacle appear.
+6. Show a round result.
+7. Restart or return to map/mode selection.
+8. Choose **Solo vs Bot** with 1 extra arena bot to show AI and chaos.
+9. End on the champion screen.
 
 See `docs/demo-script.md` for a full 3-5 minute script and fallback short version.
 
