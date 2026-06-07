@@ -229,7 +229,7 @@ More detail is available in `docs/ai-usage.md`.
 
 ## Team Contributions
 
-Use this section before submission to add real teammate names and responsibilities.
+
 
 | Team Member | Contributions |
 | --- | --- |
